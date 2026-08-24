@@ -298,3 +298,13 @@ def getQName(controller, pathname):  # return ns, localname, and inline namespac
             f.close()
         sys.stderr.flush()
     return (rootNamespace, rootElement, inlineNamespaceBound)
+
+def symlinkOrCopy(source, target):
+    targetDir = os.path.dirname(target)
+    if os.path.exists(source) and (not targetDir or os.path.exists(targetDir)):
+        try:
+            os.symlink(source, target) # won't work on Windows without administrator privileges
+        except OSError as ex:
+            if getattr(ex, "winerror", 0) == 1314:
+                # symlink denied on Windows without administrator privileges
+                shutil.copyfile(source, target)

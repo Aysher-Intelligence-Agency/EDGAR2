@@ -142,7 +142,9 @@
         "comment7": "SPAC EX98 OPT are submission types where the EX98 document can be submitted in plain HTML.",
         "comment8": "The SPAC EX98 OPT sub types will not have a warning if SPAC facts are not tagged.",
         "SPAC EX98 REQ": ["@S-1 EX98", "@F-1 EX98", "@S-4 EX98", "@F-4 EX98", "@SC EX98"],
-        "SPAC EX98 OPT": ["@8-K EX98", "@POS EX98", "@6-K EX98", "SC13E4F§EX-98", "SC13E4F/A§EX-98"]
+        "SPAC EX98 OPT": ["@8-K EX98", "@POS EX98", "@6-K EX98", "SC13E4F§EX-98", "SC13E4F/A§EX-98"],
+        "comment9": "EX-99.4R HISTORIC",
+        "EX-99.4R": ["N-4§EX-99.4R HISTORIC", "N-4/A§EX-99.4R HISTORIC", "485APOS§EX-99.4R HISTORIC", "485BPOS§EX-99.4R HISTORIC", "485BXT§EX-99.4R HISTORIC", "497§EX-99.4R HISTORIC", "POS 8C§EX-99.4R HISTORIC", "POS AMI§EX-99.4R HISTORIC"]
     },
     "sub-type-element-validations": [
 	{"sub-types": ["10-12B"], "xbrl-names": "DocumentType", "efm": "6.5.20", "validation": "xv", "value": ["10-12B"], "source": "both", "dei/cover": "dei"},
@@ -263,8 +265,8 @@
     {"sub-types": ["N-2 POSASR"], "xbrl-names": "DocumentType", "efm": "6.5.20", "validation": "xv", "value": ["N-2 POSASR", "N-2"], "source": "both", "dei/cover": "dei"},
     {"sub-types": ["N-3"], "xbrl-names": "DocumentType", "efm": "6.5.20", "validation": "xv", "value": ["N-3"], "source": "both", "dei/cover": "dei"},
     {"sub-types": ["N-3/A"], "xbrl-names": "DocumentType", "efm": "6.5.20", "validation": "xv", "value": ["N-3", "N-3/A"], "source": "both", "dei/cover": "dei"},
-    {"sub-types": ["N-4"], "xbrl-names": "DocumentType", "efm": "6.5.20", "validation": "xv", "value": ["N-4", "EX-99.4R HISTORIC"], "source": "both", "dei/cover": "dei"},
-    {"sub-types": ["N-4/A"], "xbrl-names": "DocumentType", "efm": "6.5.20", "validation": "xv", "value": ["N-4", "N-4/A", "EX-99.4R HISTORIC"], "source": "both", "dei/cover": "dei"},
+    {"sub-types": ["N-4"], "xbrl-names": "DocumentType", "efm": "6.5.20", "validation": "xv", "value": ["N-4"], "source": "both", "dei/cover": "dei"},
+    {"sub-types": ["N-4/A"], "xbrl-names": "DocumentType", "efm": "6.5.20", "validation": "xv", "value": ["N-4", "N-4/A"], "source": "both", "dei/cover": "dei"},
     {"sub-types": ["N-6"], "xbrl-names": "DocumentType", "efm": "6.5.20", "validation": "xv", "value": ["N-6"], "source": "both", "dei/cover": "dei"},
     {"sub-types": ["N-6/A"], "xbrl-names": "DocumentType", "efm": "6.5.20", "validation": "xv", "value": ["N-6", "N-6/A"], "source": "both", "dei/cover": "dei"},
     {"sub-types": ["N-8B-2"], "xbrl-names": "DocumentType", "efm": "6.5.20", "validation": "xv", "value": ["N-8B-2"], "source": "both", "dei/cover": "dei"},
@@ -317,6 +319,7 @@
 	{"sub-types": ["SP 15D2"], "xbrl-names": "DocumentType", "efm": "6.5.20", "validation": "xv", "value": ["SP 15D2"], "source": "both", "dei/cover": "dei"},
 	{"sub-types": ["SP 15D2/A"], "xbrl-names": "DocumentType", "efm": "6.5.20", "validation": "xv", "value": ["SP 15D2", "SP 15D2/A"], "source": "both", "dei/cover": "dei"},
 	{"sub-types": ["@SDR"], "xbrl-names": "DocumentType", "efm": "6.5.20", "validation": "xv", "value": ["K SDR", "L SDR"], "source": "both", "dei/cover": "dei"},
+    {"sub-types": ["@EX-99.4R"], "xbrl-names": "DocumentType", "efm": "6.5.20", "validation": "xv", "value": ["EX-99.4R HISTORIC"], "source": "both", "dei/cover": "dei"},
 	{"sub-types": ["!not!", "10-12B", "10-12B/A", "10-12G", "10-12G/A", "10-K", "10-K/A", "10-KT",
 				"10-KT/A", "10-Q", "10-Q/A", "10-QT", "10-QT/A", "20-F", "20-F/A", "20FR12B",
 				"20FR12B/A", "20FR12G", "20FR12G/A", "40-F", "40-F/A", "40FR12B", "40FR12B/A",
@@ -372,7 +375,7 @@
         "comment": "if and only if non-empty, AmendmentFlag must be true"
     },
     {
-        "sub-types": ["@all-FAST", "@N-CSR"],
+        "sub-types": ["@all-FAST", "@N-CSR", "@EX-99.4R"],
         "xbrl-names": "DocumentPeriodEndDate",
         "elo-name": "periodOfReport",
         "efm": "6.5.20",
@@ -925,7 +928,7 @@
         "dei/cover": "dei"
     },
     {
-        "sub-types": ["@RR", "N-2", "N-2/A", "N-3", "N-3/A", "N-4", "N-4/A", "N-6", "N-6/A"],
+        "sub-types": ["@RR", "N-2", "N-2/A", "N-3", "N-3/A", "N-4", "N-4/A", "N-6", "N-6/A", "@EX-99.4R"],
         "xbrl-names": "EntityInvCompanyType",
         "elo-name": "invCompanyType",
         "efm": "6.5.40",
@@ -2407,7 +2410,7 @@
         "comment": "N-3 VIP"
     },
     {
-        "sub-types": ["@N-3", "@N-4", "@N-6"],
+        "sub-types": ["@N-3", "@N-4", "@N-6", "@EX-99.4R"],
         "xbrl-names": "vip:*",
         "efm": "6.5.56",
         "validation": "(supported-taxonomy)",
@@ -2497,7 +2500,7 @@
         "source": "both"
     },
     {
-        "sub-types": ["@N-4"],
+        "sub-types": ["@N-4", "@EX-99.4R"],
         "xbrl-names": "vip-n4:*",
         "efm": "6.5.56",
         "validation": "taxonomy-url-required-in-dts",
@@ -2531,19 +2534,26 @@
     {
         "comment": "N-CSR*"
     },
-    {
-        "sub-types": ["@N-CSR"],
-        "xbrl-names": [
-        	"oef:ShareholderReportAnnualOrSemiAnnual",
-        	"oef:FundName",
-        	"oef:ClassName"
-        	],
-        "efm": "6.5.57",
-        "validation": "fw",
-        "axis": "oef:class",
-        "source": "both",
-        "dei/cover": "dei"
-    },
+	{
+	    "sub-types": ["@N-CSR"],
+	    "xbrl-names": "oef:ShareholderReportAnnualOrSemiAnnual",
+	    "efm": "6.5.57",
+	    "validation": "r",
+	    "source": "both",
+	    "dei/cover": "dei"
+	},
+	{
+	    "sub-types": ["@N-CSR"],
+	    "xbrl-names": [
+	        "oef:FundName",
+	        "oef:ClassName"
+	        ],
+	    "efm": "6.5.57",
+	    "validation": "fw",
+	    "axis": "oef:class",
+	    "source": "both",
+	    "dei/cover": "dei"
+	},
     {
         "sub-types": ["@N-CSR"],
         "xbrl-names": [

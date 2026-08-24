@@ -450,6 +450,14 @@ def embeddingGarbageCollect(embedding):
     embedding.__dict__.clear()
 
 
+def is_number(val):
+    try:
+        n = float(val)
+        return math.isfinite(n) # Returns False for NaN and Inf
+    except ValueError:
+        return False
+
+
 class RenderingException(Exception):
 
     def __init__(self, code, message):

@@ -14,7 +14,8 @@ import regex as re
 from itertools import chain
 import arelle.ModelValue, arelle.XbrlConst
 from arelle.ModelDtsObject import ModelConcept
-from arelle.PythonUtil import OrderedSet
+from arelle.ModelObject import ModelObject
+from arelle.PythonUtil import OrderedSet, pyNamedObject
 from arelle.XmlUtil import collapseWhitespace
 from arelle.XmlValidateConst import VALID, VALID_NO_CONTENT
 from arelle.XbrlConst import parentChild
@@ -26,11 +27,12 @@ usGaapOrIfrsPattern = re.compile(".*/fasb[.]org/(us-gaap|srt)/20|.*/xbrl[.]ifrs[
 deiPattern = re.compile(".*/xbrl[.]sec[.]gov/dei/20", re.I)
 
 
-def mainFun(controller, modelXbrl, outputFolderName, transform=None, suplSuffix=None, rFilePrefix=None, altFolder=None, altTransform=None, altSuffix=None, zipDir=None):
+def mainFun(controller, report, outputFolderName, transform=None, suplSuffix=None, rFilePrefix=None, altFolder=None, altTransform=None, altSuffix=None, zipDir=None):
+    modelXbrl = report.modelXbrl
     if "EdgarRenderer/Filing.py#mainFun" in modelXbrl.arelleUnitTests:
-        raise arelle.PythonUtil.pyNamedObject(modelXbrl.arelleUnitTests["EdgarRenderer/Filing.py#mainFun"], "EdgarRenderer/Filing.py#mainFun")
+        raise pyNamedObject(modelXbrl.arelleUnitTests["EdgarRenderer/Filing.py#mainFun"], "EdgarRenderer/Filing.py#mainFun")
     _funStartedAt = time.time()
-    filing = Filing(controller, modelXbrl, outputFolderName, transform, suplSuffix, rFilePrefix, altFolder, altTransform, altSuffix, zipDir)
+    filing = Filing(controller, report, outputFolderName, transform, suplSuffix, rFilePrefix, altFolder, altTransform, altSuffix, zipDir)
     controller.logDebug("Filing initialized {:.3f} secs.".format(time.time() - _funStartedAt)); _funStartedAt = time.time()
     filing.populateAndLinkClasses()
     controller.logDebug("Filing populateAndLinkClasses {:.3f} secs.".format(time.time() - _funStartedAt)); _funStartedAt = time.time()
@@ -202,8 +204,10 @@ def contextDims(context) -> dict:
 
 class Filing(object):
 
-    def __init__(self, controller, modelXbrl, outputFolderName, transform, suplSuffix, rFilePrefix, altFolder, altTransform, altSuffix, zipDir):
-        self.modelXbrl = modelXbrl
+    def __init__(self, controller, report, outputFolderName, transform, suplSuffix, rFilePrefix, altFolder, altTransform, altSuffix, zipDir):
+        self.report = report
+        report.renderedFiles = [] # clear any prior rendered files when rerun for redaction
+        self.modelXbrl = modelXbrl = report.modelXbrl
         self.transform = transform
         self.suplSuffix = suplSuffix
         self.rFilePrefix = rFilePrefix
@@ -294,6 +298,7 @@ class Filing(object):
         self.builtinEquityRowAxes = [('us-gaap', self.usgaapNamespace, 'CreationDateAxis'),  # us-gaap deprecated 2019 absent after 2021.
                                      ('ifrs-full', self.ifrsNamespace, 'CreationDateAxis'),
                                      ('us-gaap', self.usgaapNamespace, 'StatementScenarioAxis'),
+                                     ('us-gaap', self.usgaapNamespace, 'RestatementAxis'),
                                      ('us-gaap', self.usgaapNamespace, 'AdjustmentsForNewAccountingPronouncementsAxis'),
                                      ('us-gaap', self.usgaapNamespace, 'AdjustmentsForChangeInAccountingPrincipleAxis'),
                                      ('us-gaap', self.usgaapNamespace, 'ErrorCorrectionsAndPriorPeriodAdjustmentsRestatementByRestatementPeriodAndAmountAxis'),
@@ -423,7 +428,7 @@ class Filing(object):
                             return ("", "", 0)
                         if fact.isNumeric:
                             if fact.isNil: discriminator = float("INF")  # Null values always last
-                            elif fact.decimals is None: discriminator = 0  # Can happen with invalid xbrl
+                            elif fact.decimals is None or not Utils.is_number(fact.decimals): discriminator = 0  # Can happen with invalid xbrl
                             else: discriminator = 0 - float(fact.decimals)  # Larger decimal values come first
                         else:  # non-numeric
                             if fact.isNil: discriminator = '\uffff'  # Null values always last (highest 2-byte unicode character)
@@ -458,7 +463,7 @@ class Filing(object):
                         if discardedCounter > 0:
                             # start it off because we can assume that these facts have a qname and a context
                             qnameContextIDUnitStr = 'qname {!s}, context {}'.format(firstFact.qname, firstFact.contextID)
-                            if firstFact.unit is not None:
+                            if getattr(firstFact, 'unitID', None) is not None:
                                 qnameContextIDUnitStr += ', unit ' + firstFact.unitID
                             self.modelXbrl.debug("debug",
                                                  _("There are multiple facts with %(contextUnitIds)s. The first fact on line %(lineNumOfFactWeAreKeeping)s of the instance "
@@ -652,7 +657,7 @@ class Filing(object):
                             _("Context %(contextID)s explicit dimension %(dimension)s member %(value)s is not a global member item"),
                             modelObject=(arelleDimension, fact), contextID=fact.context.id,
                             dimension=arelleDimension.dimensionQname, value=arelleDimension.memberQname)
-                elif arelleDimension.isTyped and arelleDimension.typedMember.xValid < VALID:
+                elif arelleDimension.isTyped and arelleDimension.typedMember is not None and arelleDimension.typedMember.xValid < VALID:
                     self.modelXbrl.debug("debug",
                         _("Context %(contextID)s typed dimension %(dimension)s member %(value)s is not an xml schema validated value"),
                         modelObject=(arelleDimension, fact), contextID=fact.context.id,
@@ -969,7 +974,7 @@ class Filing(object):
         # this is fine, but each time you render, they might appear in a different order.  so this will sort the facts by source line
         # so that each run the same facts don't appear in different orders.
         if cube.isElements:
-            sortedFAMGL = sorted(embedding.factAxisMemberGroupList, key=lambda thing: (thing.axisMemberPositionTupleRowList, thing.fact.sourceline))
+            sortedFAMGL = sorted(embedding.factAxisMemberGroupList, key=lambda thing: (thing.axisMemberPositionTupleRowList, thing.fact.sourceline or 0))
         else:
             sortedFAMGL = sorted(embedding.factAxisMemberGroupList, key=lambda thing: thing.axisMemberPositionTupleRowList)
         report.generateRowsOrCols('row', sortedFAMGL)

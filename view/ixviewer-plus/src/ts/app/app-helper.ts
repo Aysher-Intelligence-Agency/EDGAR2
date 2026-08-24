@@ -1,8 +1,6 @@
-import { ILogObj, Logger } from "tslog";
 import { HelpersUrl } from "../helpers/url";
 
 export function fixImages(doc = document): void {
-    const startPerformance = performance.now();
 
     if (HelpersUrl.isWorkstation()) {
         // example MetaLinks path: '../DisplayDocument.do?step=docOnly&accessionNumber=0001314610-24-800735&interpretedFormat=false&redline=true&filename=MetaLinks.json'
@@ -39,18 +37,9 @@ export function fixImages(doc = document): void {
             imgElem.setAttribute("loading", "lazy");
         }
     }
-
-    const endPerformance = performance.now();
-    if (LOGPERFORMANCE) {
-        const items = doc.querySelectorAll("img").length;
-        const log: Logger<ILogObj> = new Logger();
-        log.debug(`AppHelper.fixImages() completed in: ${(endPerformance - startPerformance).toFixed(2)}ms - ${items} items`);
-    }
 }
 
 export function fixLinks(doc = document): void {
-    const startPerformance = performance.now();
-
     const foundLinksArray = Array.from(doc.querySelectorAll("[data-link], :not(link)[href]"));
     foundLinksArray.forEach((linkElem) => {
         linkElem.setAttribute('tabindex', '18');
@@ -85,13 +74,6 @@ export function fixLinks(doc = document): void {
             }
         }
     });
-
-    const endPerformance = performance.now();
-    if (LOGPERFORMANCE) {
-        const items = foundLinksArray.length;
-        const log: Logger<ILogObj> = new Logger();
-        log.debug(`AppHelper.fixLinks() completed in: ${(endPerformance - startPerformance).toFixed(2)}ms - ${items} items`);
-    }
 }
 
 function getFirstStyleValue(el: Element, styles: string[]): string {
@@ -116,20 +98,20 @@ function getFirstStyleValue(el: Element, styles: string[]): string {
 //Note: this MUST be called before `attributeFacts`
 export function hiddenFacts(doc = document) {
     /*
+        AKA "Additional" facts - Ticket was requested and approved at some point to call them hidden, but ticket hasn't been put in a sprint.
         Requirements
         1. Hidden facts that are displayed inline (style="-sec-ix-hidden:{orignal-id}")
-            a. should get H label (maybe asterisk next to H* for referenced inline? "* = referenced inline" could be in popup when hovering H label)
+            a. should get H (A, currently) label (maybe asterisk next to H* for referenced inline? "* = referenced inline" could be in popup when hovering H label)
             b. show on H only filter
             c. scroll to inline location when clicked
             d. show file value in sidebar "(Referenced Inline)"
         2. Hidden facts that aren't displayed inline (in ix:hidden only)
-            a. should get H label
+            a. should get H (A, currently) label
             b. show on H only filter
             c. not show error when clicked
             d. next to file value show "(No Inline Location)"
     */
 
-    const startPerformance = performance.now();
     const inlineElems = [...doc.querySelectorAll<HTMLElement>('[style*="-ix-hidden"]')].reverse();
 
     for (let inlineElem of inlineElems) {
@@ -154,19 +136,11 @@ export function hiddenFacts(doc = document) {
             console.warn(`HiddenFacts: Found no element with ID ${hiddenElemId}`);
         }
     }
-
-    const endPerformance = performance.now();
-    if (LOGPERFORMANCE) {
-        const items = inlineElems.length;
-        const log: Logger<ILogObj> = new Logger();
-        log.debug(`AppHelper.hiddenFacts() completed in: ${(endPerformance - startPerformance).toFixed(2)}ms - ${items} items`);
-    }
 }
 
 export function redLineFacts(doc = document) {
     if (!HelpersUrl.getAllParams?.redline) return;
 
-    const startPerformance = performance.now();
     let foundElements = [];
     
     for (let r of ["redline", "redact"]) {
@@ -178,13 +152,6 @@ export function redLineFacts(doc = document) {
         for (let current of foundElements) {
             current.setAttribute(r, "true");
         }
-    }
-
-    const endPerformance = performance.now();
-    if (LOGPERFORMANCE) {
-        const items = foundElements?.length;
-        const log: Logger<ILogObj> = new Logger();
-        log.debug(`AppHelper.redLineFacts() completed in: ${(endPerformance - startPerformance).toFixed(2)}ms - ${items} items`);
     }
 }
 

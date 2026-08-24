@@ -3,10 +3,8 @@ import { readFilingDataAccNum } from "../../dataPlus/filingsFunnel.js";
 
 let nmexfiling = readFilingDataAccNum('000143774923034166');
 
-describe(`Hidden Facts`, () =>
-{
-    it('Hidden Fact should have file location', () =>
-    {
+describe(`Hidden Facts`, () => {
+    it('Hidden Fact should have file location', () => {
         cy.loadFiling(nmexfiling);
         cy.get(selectors.factSidebarToggleBtn).click();
 
@@ -20,11 +18,18 @@ describe(`Hidden Facts`, () =>
         cy.get(selectors.factModal).should('be.visible');
     });
 
-    it('Hidden within Hidden Fact', () =>
-    {
+    it('Hidden within Hidden Fact', () => {
+        /*
+        Contains 2 nested hidden facts
+        <ix:nonnumeric id="fact-identifier-195" contextref="d_2023-08-01_2023-10-31" name="us-gaap:EarningsPerSharePolicyTextBlock" id="c1500974793841227">
+            <span style="-sec-ix-hidden:c220">
+                <span style="-sec-ix-hidden:c221">no</span>
+            </span>
+        </ix:nonnumeric>
+        */
         cy.loadFiling(nmexfiling);
 
-        cy.get('[id="fact-identifier-195"]').click();
+        cy.get('[id="fact-identifier-195"]', {timeout: 2000}).click();
         cy.get(selectors.nestedCount).should('have.text', '3');
         
         cy.get('[id="fact-identifier-6"]').click();
@@ -34,14 +39,14 @@ describe(`Hidden Facts`, () =>
         cy.get(selectors.factModal).should('be.visible');
     });
 
-    it('Normal fact within Hidden Fact', () =>
-    {
+    it('Normal fact within Hidden Fact', () => {
         cy.loadByAccessionNum('000121390021056659');
+        
         // switch docs
         cy.get('[data-cy="inlineDocTab-1"]').click();
 
         // hidden fact ref
-        cy.get('[id="fact-identifier-27"]').click();
+        cy.get('[id="fact-identifier-27"]', {timeout: 2000}).click();
         cy.get(selectors.nestedFactModal).should('be.visible');
         cy.get(selectors.nestedCount).should('have.text', '2');
         cy.get(selectors.nestedFactModalClose).click();
@@ -51,12 +56,11 @@ describe(`Hidden Facts`, () =>
         cy.get(selectors.factModal).should('be.visible');
     });
 
-    it('Hidden Fact should have file location (2)', () =>
-    {
+    it('Hidden Fact should have file location (2)', () => {
         cy.loadByAccessionNum('000121390021056659');
         cy.get(selectors.factSidebarToggleBtn).click();
 
-        //this one is nested-hidden
+        // this one is nested-hidden
         cy.get('a[data-id="fact-identifier-25"] small')
             .should('have.text', 'stratasys-991.htm')
             .click();
@@ -65,15 +69,14 @@ describe(`Hidden Facts`, () =>
         cy.get(selectors.factModal).should('be.visible');
     });
 
-    it('Nested Hidden Fact is scrolled to and highlighted', () =>
-    {
+    it('Nested Hidden Fact is scrolled to and highlighted', () => {
         cy.loadByAccessionNum('000121390021056659');
         cy.get(selectors.factSidebarToggleBtn).click();
 
         cy.get('a[data-id="fact-identifier-25"]')
             .click();
 
-        //we need to make sure we're selecting the right fact
+        // we need to make sure we're selecting the right fact
         cy.get('#fact-identifier-25')
             .should('have.attr', "name", "dei:DocumentFiscalYearFocus")
             .should('have.attr', "contextref", "c0")

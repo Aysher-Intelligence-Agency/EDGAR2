@@ -6,6 +6,7 @@
 import { FactMap } from "../facts/map";
 import { UserFiltersMoreFiltersMembers } from "./more-filters-members";
 import { stopPropPrevDefault } from "../helpers/utils";
+import { Constants } from "../constants/constants";
 
 export const UserFiltersMoreFiltersMembersSetUp = {
 
@@ -16,7 +17,12 @@ export const UserFiltersMoreFiltersMembersSetUp = {
     setMembers: () => {
         const members = FactMap.getAllMembers();
         document.getElementById("filters-members-count")!.innerText = members.length.toString();
-        UserFiltersMoreFiltersMembersSetUp.populate(members);
+        if (members.length > Constants.memberLimit) {
+            document.getElementById("more-filters-menu-members")?.classList.add('disabled');
+            document.getElementById("more-filters-menu-members")?.setAttribute('disabled', 'true');
+        } else {
+            UserFiltersMoreFiltersMembersSetUp.populate(members);
+        }
     },
 
     populate: (members: Array<{ type: string, value: string }>) => {

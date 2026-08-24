@@ -52,8 +52,8 @@ export const buildSectionsArrayFlatter = (filingSummary:FilingSummary, metaLinks
                     return a;
                 }
             });
-            const ancestorsRelevant = handleSpecialAncestors.reverse().filter((a:string) => a !== "html").join(' ');
-            section.inlineFactSelector = `section[filing-url="${mrFact.file}"] > ${ancestorsRelevant} [name="${mrFact.name}"][contextref="${mrFact.contextRef}"]`;
+            const ancestorsRelevant = handleSpecialAncestors.reverse().filter((a:string) => a !== "html" && a !== "body").join(' ');
+            section.inlineFactSelector = `section[filing-url="${mrFact.file}"] ${ancestorsRelevant} [name="${mrFact.name}"][contextref="${mrFact.contextRef}"]`;
         }
         return section;
     }

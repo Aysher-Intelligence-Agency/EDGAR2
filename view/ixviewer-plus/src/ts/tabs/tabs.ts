@@ -9,20 +9,21 @@ import { ConstantsFunctions } from "../constants/functions";
 import { FactMap } from "../facts/map";
 import { HelpersUrl } from "../helpers/url";
 import { Sections } from "../sections/sections";
-import { defaultKeyUpHandler } from "../helpers/utils";
+import { actionKeyHandler } from "../helpers/utils";
 import { stopPropPrevDefault } from "../helpers/utils";
 
 export const Tabs = {
 
-	init: () => {
-		Tabs.populateTabs();
+	init: (lite=false) => {
+		Tabs.populateTabs(lite);
 	},
 
 	/**
 	 * Description
+	 * lite param true when very large filings and we don't have fact features.
 	 * @returns {any} populates tabs, i.e. instance tab(s), fact table, fact chart
 	 */
-	populateTabs: () => {
+	populateTabs: (lite=false) => {
 		const container = document.getElementById('tabs-container');
 		Constants.getInlineFiles.forEach((currentInlineDoc, inlineDocIndex) => {
 			// add Instance dropdown (if it's the first instance)
@@ -87,25 +88,34 @@ export const Tabs = {
 				ConstantsFunctions.switchDoc(currentInlineDoc.slug);
 			}
 
-			inlineDocTabElem.addEventListener('click', (e) => stopPropPrevDefault(e, switchDoc), true);
-			inlineDocTabElem.addEventListener('keyup', (e) => defaultKeyUpHandler(e, switchDoc), true);
+			inlineDocTabElem.addEventListener('click', (e) => {
+				stopPropPrevDefault(e);
+				switchDoc();
+			}, true);
+			inlineDocTabElem.addEventListener('keyup', (e) => {
+				if (!actionKeyHandler(e)) return;
+				switchDoc();
+			}, true);
 			const text = document.createTextNode(currentInlineDoc.slug);
 			inlineDocTabElem.append(text);
 
-			const factCountSpan = document.createElement('span');
-			currentInlineDoc.table ? factCountSpan.classList.add('fact-total-count') : factCountSpan.classList.add('fact-file-total-count');
-
-			factCountSpan.classList.add('badge');
-			factCountSpan.classList.add('ms-1');
-			currentInlineDoc.table ? null : factCountSpan.setAttribute('doc-slug', currentInlineDoc.slug);
-
-			const factText = document.createTextNode(FactMap.getFactCountForFile(currentInlineDoc.slug));
-
-			factCountSpan.setAttribute('data-bs-toggle', 'tooltip');
-			factCountSpan.setAttribute('title', 'Filtered Fact Count');
-
-			factCountSpan.append(factText);
-			inlineDocTabElem.append(factCountSpan);
+			if (!lite) {
+				const factCountSpan = document.createElement('span');
+				currentInlineDoc.table ? factCountSpan.classList.add('fact-total-count') : factCountSpan.classList.add('fact-file-total-count');
+	
+				factCountSpan.classList.add('badge');
+				factCountSpan.classList.add('ms-1');
+				currentInlineDoc.table ? null : factCountSpan.setAttribute('doc-slug', currentInlineDoc.slug);
+	
+				// const factCountSpan = document.createElement('span');
+				const factCountText = document.createTextNode(FactMap.getFactCountForFile(currentInlineDoc.slug));
+	
+				factCountSpan.setAttribute('data-bs-toggle', 'tooltip');
+				factCountSpan.setAttribute('title', 'Filtered Fact Count');
+	
+				factCountSpan.append(factCountText);
+				inlineDocTabElem.append(factCountSpan);
+			}
 
 			li.append(inlineDocTabElem);
 			container?.append(li);
@@ -193,9 +203,13 @@ export const Tabs = {
 
 	clickEventInstance: (event: MouseEvent | KeyboardEvent, instance: number) => {
 		event.preventDefault();
-		ConstantsFunctions.changeInstance(+instance as number, null, () => {
-			Sections.highlightInstanceInSidebar();
-			Sections.applyFilterRadios();
+		ConstantsFunctions.changeInstance(+instance as number, null).then((success) => {
+			if (success) {
+				Sections.highlightInstanceInSidebar();
+				Sections.applyFilterRadios();
+			} else {
+				console.error("Error: There was an issue changing instances via Instance Dropdown.");
+			}
 		});
 	},
 };

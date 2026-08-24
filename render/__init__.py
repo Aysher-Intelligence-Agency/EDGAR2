@@ -143,7 +143,7 @@ Language of labels:
     GUI may use tools->language labels setting to override system language for labels
 
 """
-VERSION = '3.25.2'
+VERSION = '3.26.1'
 
 from collections import defaultdict
 from arelle import PythonUtil
@@ -171,6 +171,7 @@ for t in ("schemaRef", "linkbaseRef", "roleRef", "arcroleRef", "loc", "arc"):
     tagsWithNoContent.add(f"{{http://www.xbrl.org/2003/linkbase}}{t}")
 tagsWithNoContent.add("{http://www.xbrl.org/2013/inlineXBRL}relationship")
 
+RESOURCE_FILES = ("report.css", "Show.js")
 
 def uncloseSelfClosedTags(doc):
     doc.parser.set_element_class_lookup(None)  # modelXbrl class features are already closed now, block class lookup
@@ -310,7 +311,7 @@ class EdgarRenderer(Cntlr.Cntlr):
             cntlr.editedModelXbrls = set()
             cntlr.redlineIxDocs = {}
             cntlr.redactTgtElts = set()
-            cntlr.redactTgtEltContent = set()
+            cntlr.redactRedlineTgtEltContent = set()
             cntlr.redactFileReferences = set()
 
     # wrap controler properties as needed
@@ -1046,10 +1047,10 @@ class EdgarRenderer(Cntlr.Cntlr):
             s -= nonStrippedFileRef # don't strip files which are still referenced in unstripped document
             strippedFiles |= s
         privateFilesNotDisseminated |= privateRefDocs - publicRefDocs
-        if not bool(publicRefDocs):
+        if not bool(publicRefDocs) and len(filing.reports) > 0:
             # since there were no public documents reference we do not want to disseminate show.js and report.css
-            privateFilesNotDisseminated.add("Show.js")
-            privateFilesNotDisseminated.add("report.css")
+            for fileName in RESOURCE_FILES:
+                privateFilesNotDisseminated.add(fileName)
 
         if getattr(cntlr, "redactFileReferences", None):
             # send delete for any files that were redacted and aren't reference
@@ -1086,7 +1087,7 @@ class EdgarRenderer(Cntlr.Cntlr):
                 targetDocumentSuffix = ("_ht2." if hasPrivateData else "_ht1.") if self.isWorkstationFirstPass else "_htm."
                 for report in filing.reports:
                     Inline.saveTargetDocumentIfNeeded(self, options, report.modelXbrl, filing, suffix=targetDocumentSuffix)  # save extracted xml from inline reports
-                    Filing.mainFun(self, report.modelXbrl, self.reportsFolder, transform=reportXslt, rFilePrefix=rFilePrefix)  # dissem suffix
+                    Filing.mainFun(self, report, self.reportsFolder, transform=reportXslt, rFilePrefix=rFilePrefix)  # dissem suffix
                 if self.xlWriter and self.hasXlout:
                     _startedAt = time.time()
                     self.xlWriter.save()
@@ -1094,7 +1095,7 @@ class EdgarRenderer(Cntlr.Cntlr):
                     self.xlWriter = None
                     self.logDebug("Excel saving complete {:.3f} secs.".format(time.time() - _startedAt))
 
-                def copyResourceToReportFolder(filename):
+                def copyResourceToReportFolder(filename, additionalDirectory=None):
                     source = join(self.resourcesFolder, filename)
                     if self.reportZip:
                         self.reportZip.write(source, filename)
@@ -1105,11 +1106,17 @@ class EdgarRenderer(Cntlr.Cntlr):
                             file = filesource.file(source, binary=True)[0]  # returned in a tuple
                             filing.writeFile(target, file.read())  # shutil.copyfile(source, target)
                             self.renderedFiles.add(filename)
+                    if additionalDirectory:
+                        target = join(additionalDirectory, filename)
+                        os.makedirs(additionalDirectory, exist_ok=True)
+                        file = filesource.file(source, binary=True)[0]  # returned in a tuple
+                        filing.writeFile(target, file.read())
+                        self.renderedFiles.add(filename)
 
                 _startedAt = time.time()
                 if filing.reports and ('html' in (self.reportFormat or "").casefold() or self.summaryXslt is not None):
-                    copyResourceToReportFolder("Show.js")
-                    copyResourceToReportFolder("report.css")
+                    for fileName in RESOURCE_FILES:
+                        copyResourceToReportFolder(fileName)
                 if self.summaryXslt and len(self.summaryXslt) > 0 and self.processXsltInBrowser:
                     copyResourceToReportFolder("RenderingLogs.xslt")  # TODO: This will go away
                     self.renderedFiles.add("RenderingLogs.xslt")
@@ -1161,7 +1168,7 @@ class EdgarRenderer(Cntlr.Cntlr):
 
                 self.logDebug("Instance post-processing complete {:.3f} secs.".format(time.time() - _startedAt))
 
-                # temporary work-around to create SDR summaryDict
+                # temporary work-around to create multi-report summaryDict
                 if not self.sourceDict and any(
                         report.deiDocumentType  # HF: believe condition wrong: and report.documentType.endswith(" SDR")
                         for report in filing.reports):  # filesource will not be None
@@ -1170,7 +1177,7 @@ class EdgarRenderer(Cntlr.Cntlr):
                             filepath = report.filepaths[i]
                             if report.isInline:
                                 self.sourceDict[basename] = (report.deiDocumentType, basename)
-                            else:
+                            else: # handles separate non-inline instances, previously used for SDR but may be needed for Form-1 in future
                                 for ext in (".htm", ".txt"):
                                     sourceFilepath = filepath.rpartition(".")[0] + ext
                                     if filesource.exists(sourceFilepath):
@@ -1197,7 +1204,7 @@ class EdgarRenderer(Cntlr.Cntlr):
                         removableCntxs = set()
                         removableUnits = set()
                         hasRedactedContinuation = False
-                        redactTgtEltContent = cntlr.redactTgtEltContent
+                        redactRedlineTgtEltContent = cntlr.redactRedlineTgtEltContent
                         revalidateXbrl = False
                         for f in redactTgtElts.values():
                             if isinstance(f, ModelFact):
@@ -1263,25 +1270,25 @@ class EdgarRenderer(Cntlr.Cntlr):
                                         cntlr.redlineIxDocs[doc.basename] = doc  # causes it to be rewritten out
                                         cntlr.editedModelXbrls.add(report.modelXbrl)
                                         revalidateXbrl = True
-                            if redactTgtEltContent:
+                            if redactRedlineTgtEltContent:
                                 for f in modelXbrl.facts:
-                                    if f in redactTgtEltContent:
+                                    if f in redactRedlineTgtEltContent:
                                         redactedContinuationSources.add(f)
                                         hasRedactedContinuation = True
                                     contElt = getattr(f, "_continuationElement", None)
                                     while contElt is not None:
-                                        if contElt in redactTgtEltContent:
+                                        if contElt in redactRedlineTgtEltContent:
                                             redactedContinuationSources.add(f)
                                             hasRedactedContinuation = True
                                         contElt = getattr(contElt, "_continuationElement", None)
                                 for rel in modelXbrl.relationshipSet("XBRL-footnotes").modelRelationships:
                                     f = rel.toModelObject
                                     if isinstance(f, ModelInlineFootnote):
-                                        if f in redactTgtEltContent:
+                                        if f in redactRedlineTgtEltContent:
                                             hasRedactedContinuation = True
                                         contElt = getattr(f, "_continuationElement", None)
                                         while contElt is not None:
-                                            if contElt in redactTgtEltContent:
+                                            if contElt in redactRedlineTgtEltContent:
                                                 hasRedactedContinuation = True
                                             contElt = getattr(contElt, "_continuationElement", None)
                         # redline-removed docs have self-closed <p> and other elements which must not be self-closed when saved
@@ -1311,7 +1318,7 @@ class EdgarRenderer(Cntlr.Cntlr):
                                 for rel in modelXbrl.relationshipSet("XBRL-footnotes").modelRelationships:
                                     f = rel.toModelObject
                                     if isinstance(f, ModelInlineFootnote):
-                                        del f._ixValue  # force rebuilding continuation chain value
+                                        if hasattr(f, "_ixValue"): del f._ixValue  # force rebuilding continuation chain value
                                         xmlValidate(f.modelXbrl, f, ixFacts=True)
                                 revalidateXbrl = True
                             report.redactedContinuationSources.clear()  # deref
@@ -1367,27 +1374,27 @@ class EdgarRenderer(Cntlr.Cntlr):
                     if self.auxMetadata or filing.hasInlineReport:
                         summary.writeMetaFiles(self.reportsFolder, prefix=rFilePrefix)
                         self.logDebug("Write meta files complete")
+                    xbrlZipFileName = None
                     if self.zipXbrlFilesToOutput and (hasattr(filing, "accessionNumber") or filing.entrypointfiles):
-                        _fileName = None
                         if hasattr(filing, "accessionNumber"):
-                            _fileName = filing.accessionNumber + "-xbrl.zip"
+                            xbrlZipFileName = filing.accessionNumber + "-xbrl.zip"
                         else:
                             # check for first report with a targetDocument or reportFile
                             for report in filing.reports:
                                 if not getattr(report, "isNotDisseminated", False):
-                                    _fileName = getattr(report.modelXbrl.modelDocument, "targetDocumentPreferredFilename", None)
-                                    if not _fileName and report.basenames:
-                                        _fileName = report.basenames[0]
+                                    xbrlZipFileName = getattr(report.modelXbrl.modelDocument, "targetDocumentPreferredFilename", None)
+                                    if not xbrlZipFileName and report.basenames:
+                                        xbrlZipFileName = report.basenames[0]
                                     break
-                            if not _fileName:
+                            if not xbrlZipFileName:
                                 _entrypoint = filing.entrypointfiles[0]
                                 if "ixds" in _entrypoint:
-                                    _fileName = _entrypoint["ixds"][0]["file"]
+                                    xbrlZipFileName = _entrypoint["ixds"][0]["file"]
                                 else:
-                                    _fileName = _entrypoint["file"]
-                            if _fileName:
-                                _fileName = os.path.splitext(os.path.basename(_fileName.partition('#')[0]))[0] + ".zip"
-                        if _fileName and sum(not getattr(report, "isNotDisseminated", False) for report in filing.reports) > 0:
+                                    xbrlZipFileName = _entrypoint["file"]
+                            if xbrlZipFileName:
+                                xbrlZipFileName = os.path.splitext(os.path.basename(xbrlZipFileName.partition('#')[0]))[0] + ".zip"
+                        if xbrlZipFileName and sum(not getattr(report, "isNotDisseminated", False) for report in filing.reports) > 0:
                             # don't provide zip if no disseminated reports
                             zipStream = io.BytesIO()
                             xbrlZip = zipfile.ZipFile(zipStream, 'w', zipfile.ZIP_DEFLATED, True)
@@ -1412,22 +1419,26 @@ class EdgarRenderer(Cntlr.Cntlr):
                                                         file = filesource.file(_filepath, binary=True)[0]  # returned in a tuple
                                                     xbrlZip.writestr(reportedFile, file.read())
                                                     file.close()
+                                                if self.isWorkstationFirstPass and reportedFile not in inputsToCopyToOutputList: # e.g. add xsd to list for SEC dissemination
+                                                    inputsToCopyToOutputList.append(reportedFile)
                             xbrlZip.close()
                             zipStream.seek(0)
                             if self.reportZip:
                                 if dissemReportsFolder:
-                                    _fileName = "dissem/" + _fileName
-                                self.reportZip.writestr(_fileName, zipStream.read())
+                                    xbrlZipFileName = "dissem/" + xbrlZipFileName
+                                self.reportZip.writestr(xbrlZipFileName, zipStream.read())
                             elif dissemReportsFolder and not self.isWorkstationFirstPass:
-                                self.writeFile(os.path.join(dissemReportsFolder, _fileName), zipStream.read())
+                                self.writeFile(os.path.join(dissemReportsFolder, xbrlZipFileName), zipStream.read())
                             else:
-                                self.writeFile(os.path.join(self.reportsFolder, _fileName), zipStream.read())
+                                self.writeFile(os.path.join(self.reportsFolder, xbrlZipFileName), zipStream.read())
+                                if self.isWorkstationFirstPass:
+                                    zipStream.seek(0)
+                                    self.writeFile(os.path.join(dissemReportsFolder, xbrlZipFileName), zipStream.read())
                             zipStream.close()
-                            self.logDebug("Write {} complete".format(_fileName))
+                            self.logDebug("Write {} complete".format(xbrlZipFileName))
 
                 # save documents with removed redlines (only when saving dissemReportsFolder)
                 if dissemReportsFolder:
-                    dissemSuffix = ".dissem" if self.isWorkstationFirstPass else ""
                     inputsToCopyToOutput = set(inputsToCopyToOutputList) - cntlr.editedIxDocs.keys()
                     for reportedFile, modelDocument in cntlr.editedIxDocs.items():
                         if reportedFile not in privateFilesNotDisseminated and reportedFile not in strippedFiles:
@@ -1435,43 +1446,47 @@ class EdgarRenderer(Cntlr.Cntlr):
                             if self.reportZip:
                                 self.reportZip.writestr("dissem/" + reportedFile, ix)
                             else:
-                                dissemFilePath = join(dissemReportsFolder, reportedFile) + dissemSuffix
+                                dissemFilePath = join(dissemReportsFolder, reportedFile)
                                 filing.writeFile(dissemFilePath, ix)
                                 if self.isWorkstationFirstPass:  # save redacted as .ht1 for workstation
                                     filePath = join(self.reportsFolder, reportedFile).replace(".htm", "_ix1.htm")
                                     filing.writeFile(filePath, ix)
                             ix = None  # dereference
                     if self.isWorkstationFirstPass:  # mark file for deleting from dissemination in workstation
-                        for reportedFile in (privateFilesNotDisseminated | strippedFiles):
-                            if self.reportZip:
-                                self.reportZip.writestr("dissem/" + reportedFile + ".delete", b"")
-                            else:
-                                filing.writeFile(join(dissemReportsFolder, reportedFile) + ".delete", b"")
+                        if privateFilesNotDisseminated:
+                            self.addToLog(_("XBRL exhibits have or reference private files not disseminated: %(json)s"),
+                                          # note that Arelle xml log arguments not named "json" have short default truncation limits
+                                          {"json": ", ".join(sorted(os.path.basename(f) for f in privateFilesNotDisseminated))},
+                                          messageCode="EFM.privateFilesNotDisseminated",
+                                          level=logging._checkLevel("INFO-RESULT"))
                         for attachmentDocumentType, _strippedFiles in filing.strippedFiles.items():
-                            self.addToLog(_("Attachment document type %(attachmentDocumentType)s has errors requiring stripping its files %(files)s"),
+                            self.addToLog(_("Attachment document type %(attachmentDocumentType)s has errors requiring stripping its files %(json)s"),
+                                          # note that Arelle xml log arguments not named "json" have short default truncation limits
                                           {"attachmentDocumentType": attachmentDocumentType or "(none)",
-                                           "files": ", ".join(sorted(os.path.basename(f) for f in _strippedFiles))},
+                                           "json": ", ".join(sorted(os.path.basename(f) for f in _strippedFiles))},
                                           messageCode="EFM.stripExhibit",
                                           level=logging._checkLevel("INFO-RESULT"))
 
-                    if not self.isWorkstationFirstPass:
-                        if self.reportZip:
-                            self.reportZip.write(os.path.join(self.resourcesFolder, "report.css"), "dissem/report.css")
-                        else:
-                            shutil.copyfile(os.path.join(self.resourcesFolder, "report.css"), os.path.join(dissemReportsFolder, "report.css"))
+                    for fileName in RESOURCE_FILES:
+                        if fileName not in privateFilesNotDisseminated:
+                            if self.reportZip:
+                                self.reportZip.write(os.path.join(self.resourcesFolder, fileName), f"dissem/{fileName}")
+                            else:
+                                copyResourceToReportFolder(fileName, additionalDirectory=dissemReportsFolder)
                     for report in filing.reports:
                         modelXbrl = report.modelXbrl
-                        if modelXbrl in cntlr.editedModelXbrls:
-                            if not getattr(report, "isNotDisseminated", False):
+                        if not getattr(report, "isNotDisseminated", False):
+                            if modelXbrl in cntlr.editedModelXbrls:
                                 if self.isWorkstationFirstPass:  # save redacted as .ht1 for workstation
                                     Inline.saveTargetDocumentIfNeeded(self, options, modelXbrl, filing, suffix="_ht1.")
                                     Inline.saveTargetDocumentIfNeeded(self, options, modelXbrl, filing)  # EDGAR dissemination file goes in report folder so it gets into EDGAR database
+                                    Inline.saveTargetDocumentIfNeeded(self, options, modelXbrl, filing, altFolder=dissemReportsFolder)  # actual dissemination file
                                 else:
-                                    Inline.saveTargetDocumentIfNeeded(self, options, modelXbrl, filing, altFolder=dissemReportsFolder, suplSuffix=dissemSuffix, zipDir="dissem/")
-                        elif hasattr(modelXbrl, "ixTargetFilename"):
-                            inputsToCopyToOutput.add(modelXbrl.ixTargetFilename)
+                                    Inline.saveTargetDocumentIfNeeded(self, options, modelXbrl, filing, altFolder=dissemReportsFolder, zipDir="dissem/")
+                            elif hasattr(modelXbrl, "ixTargetFilename"):
+                                inputsToCopyToOutput.add(modelXbrl.ixTargetFilename)
                     for filename in inputsToCopyToOutput - privateFilesNotDisseminated:
-                        if not self.isWorkstationFirstPass or filename.endswith("_ht2.xml") or filename.endswith("_ix2.htm"):
+                        if True: # not self.isWorkstationFirstPass or filename.endswith("_ht2.xml") or filename.endswith("_ix2.htm"):
                             basename = os.path.basename(filename)
                             if self.reportZip and basename in self.reportZip.namelist():
                                 serializedDoc = self.reportZip.read(basename)
@@ -1479,7 +1494,7 @@ class EdgarRenderer(Cntlr.Cntlr):
                                 if self.reportZip:
                                     _filepath = os.path.join(_xbrldir, filename)
                                 else:
-                                    _filepath = os.path.join(self.reportsFolder, filename)
+                                    _filepath = os.path.join(_xbrldir, filename) # was self.reportsFolder
                                 if filesource.isArchive and filesource.baseurl == _xbrldir:
                                     # filename may not include parent directories within the zip
                                     for f in filesource.dir:
@@ -1496,7 +1511,7 @@ class EdgarRenderer(Cntlr.Cntlr):
                                 filing.writeFile(os.path.join(dissemReportsFolder, basename), serializedDoc)
 
                     if "EdgarRenderer/__init__.py#filingPass1" in filing.arelleUnitTests:
-                        raise arelle.PythonUtil.pyNamedObject(filing.arelleUnitTests["EdgarRenderer/__init__.py#filingPass1"], "EdgarRenderer/__init__.py#filingEnd")
+                        raise PythonUtil.pyNamedObject(filing.arelleUnitTests["EdgarRenderer/__init__.py#filingPass1"], "EdgarRenderer/__init__.py#filingPass1")
 
                     # reissue R files and excel after validation
                     if hasPrivateData:
@@ -1509,34 +1524,35 @@ class EdgarRenderer(Cntlr.Cntlr):
                         for report in filing.reports:
                             if not getattr(report, "isNotDisseminated", False):
                                 if self.isWorkstationFirstPass:
-                                    Filing.mainFun(self, report.modelXbrl, dissemReportsFolder, transform=reportXsltDissem, suplSuffix=dissemSuffix,  # dissem suffix, Arelle GUI
+                                    Filing.mainFun(self, report, dissemReportsFolder, transform=reportXsltDissem,  # dissem suffix, Arelle GUI
                                                    altFolder=self.reportsFolder, altTransform=reportXslt)  # workstation redacted R file
                                 else:  # Arelle GUI operation
-                                    Filing.mainFun(self, report.modelXbrl, dissemReportsFolder, transform=reportXslt, zipDir="dissem/")  # no suffix, Arelle GUI
+                                    Filing.mainFun(self, report, dissemReportsFolder, transform=reportXslt, zipDir="dissem/")  # no suffix, Arelle GUI
                                 numDisseminatedReports += 1
                         summary = Summary.Summary(self)
                         rootETree = summary.buildSummaryETree()
                         summary.removeSummaryLogs()  # produce filing summary without logs
                         if numDisseminatedReports > 0:
                             if self.isWorkstationFirstPass:  # workstation needs redacted filing summary
-                                IoManager.writeXmlDoc(filing, rootETree, self.reportZip, self.reportsFolder, 'FilingSummary.xml')
+                                IoManager.writeXmlDoc(filing, rootETree, self.reportZip, self.reportsFolder, 'FilingSummary.xml') # for SECWS
+                                IoManager.writeXmlDoc(filing, rootETree, self.reportZip, dissemReportsFolder, 'FilingSummary.xml') # for dissemination
                                 if self.summaryXslt:
-                                    self.transformFilingSummary(filing, rootETree, self.summaryXslt, self.reportsFolder, "FilingSummary.htm", True, "Public Filing Data")
+                                    self.transformFilingSummary(filing, rootETree, self.summaryXslt, self.reportsFolder, "FilingSummary.htm", True, "Public Filing Data") # for SECWS
                             else:
-                                IoManager.writeXmlDoc(filing, rootETree, self.reportZip, dissemReportsFolder, 'FilingSummary.xml' + dissemSuffix, zipDir="dissem/")
+                                IoManager.writeXmlDoc(filing, rootETree, self.reportZip, dissemReportsFolder, 'FilingSummary.xml', zipDir="dissem/")
                                 if self.summaryXslt:
-                                    self.transformFilingSummary(filing, rootETree, self.summaryXslt, dissemReportsFolder, "FilingSummary.htm" + dissemSuffix, True, "Public Filing Data", zipDir="dissem/")
+                                    self.transformFilingSummary(filing, rootETree, self.summaryXslt, dissemReportsFolder, "FilingSummary.htm", True, "Public Filing Data", zipDir="dissem/")
                         elif self.isWorkstationFirstPass:  # redact filing summary
-                            filing.writeFile(join(dissemReportsFolder, "FilingSummary.xml.delete"), b"")
-                        if self.hasXlout:
+                            pass # no reports are disseminated therefore FilingSummary.xml is not disseminated
+                        if self.xlWriter and self.hasXlout:
                             if self.xlWriter and numDisseminatedReports > 0:
                                 _startedAt = time.time()
-                                self.xlWriter.save(suffix=dissemSuffix, zipDir="dissem/")
+                                self.xlWriter.save(zipDir="dissem/")
                                 self.xlWriter.close()
                                 self.xlWriter = None
                                 self.logDebug("Excel saving complete {:.3f} secs.".format(time.time() - _startedAt))
                             elif self.isWorkstationFirstPass:  # remove first pass excel report
-                                filing.writeFile(join(dissemReportsFolder, "Financial_Report.xlsx.delete"), b"")
+                                pass # no excel output if no disseminated reports
                         # generate supplemental AllReports and other such outputs at this time
                         for supplReport in pluginClassMethods("EdgarRenderer.FilingEnd.SupplementalReport"):
                             supplReport(cntlr, filing, dissemReportsFolder, zipDir="dissem/")
@@ -1546,19 +1562,30 @@ class EdgarRenderer(Cntlr.Cntlr):
                             self.logDebug("Arelle viewer for dissemination generated {:.3f} secs.".format(time.time() - _startedAt))
                         if (self.auxMetadata or filing.hasInlineReport) and numDisseminatedReports > 0:
                             if self.isWorkstationFirstPass:
+                                summary.writeMetaFiles(dissemReportsFolder)
+                                # we still need this for workstation view
                                 summary.writeMetaFiles(self.reportsFolder)
                             else:
-                                summary.writeMetaFiles(dissemReportsFolder, zipDir="dissem/", suplSuffix=dissemSuffix)
+                                summary.writeMetaFiles(dissemReportsFolder, zipDir="dissem/")
                             self.logDebug("Write meta files for dissemination complete")
                     elif self.isWorkstationFirstPass:
                         if len(filing.reports) >= 1:
                             summary.removeSummaryLogs()  # produce filing summary without logs
-                            IoManager.writeXmlDoc(filing, rootETree, self.reportZip, dissemReportsFolder, 'FilingSummary.xml' + dissemSuffix, zipDir="dissem/")
+                            IoManager.writeXmlDoc(filing, rootETree, self.reportZip, dissemReportsFolder, 'FilingSummary.xml', zipDir="dissem/")
+                            # write R files to dissem directory
+                            self.nextFileNum = 1  # important for naming file numbers for multi-instance filings
+                            self.nextUncategorizedFileNum = 9999
+                            self.nextBarChartFileNum = 0
+                            self.instanceSummaryList = []
+                            for report in filing.reports:
+                                Filing.mainFun(self, report, dissemReportsFolder, transform=reportXslt)  # dissem suffix
+                            # write MetaLinks.json to dissem directory
+                            summary.writeMetaFiles(dissemReportsFolder)
                         else:
-                            # remove filing summary
-                            filing.writeFile(join(dissemReportsFolder, "FilingSummary.xml.delete"), b"")
+                            pass # no filing summary when there are no reports
                 if "EdgarRenderer/__init__.py#filingEnd" in filing.arelleUnitTests:
-                    raise arelle.PythonUtil.pyNamedObject(filing.arelleUnitTests["EdgarRenderer/__init__.py#filingEnd"], "EdgarRenderer/__init__.py#filingEnd")
+                    raise PythonUtil.pyNamedObject(filing.arelleUnitTests["EdgarRenderer/__init__.py#filingEnd"], "EdgarRenderer/__init__.py#filingEnd")
+                self.logDebug("Successfully completed filing end processing", messageCode="RenderFilingEndCompletion")
 
                 if self.isDaemon:  # save file in Archives
                     try:
@@ -1586,7 +1613,7 @@ class EdgarRenderer(Cntlr.Cntlr):
         cntlr.redlineIxDocs.clear()
         cntlr.editedModelXbrls.clear()
         cntlr.redactTgtElts.clear()
-        cntlr.redactTgtEltContent.clear()
+        cntlr.redactRedlineTgtEltContent.clear()
         cntlr.redactFileReferences.clear()
 
         # non-GUI (cmd line) options.keepOpen kept modelXbrls open, use keepFilingOpen to block closing here
@@ -1846,7 +1873,7 @@ def edgarRendererGuiRun(cntlr, modelXbrl, *args, **kwargs):
             cntlr.editedModelXbrls = set()
             cntlr.redlineIxDocs = {}
             cntlr.redactTgtElts = set()
-            cntlr.redactTgtEltContent = set()
+            cntlr.redactRedlineTgtEltContent = set()
             cntlr.redactFileReferences = set()
         isNonEFMorGFMinline = (not getattr(cntlr.modelManager.disclosureSystem, "EFMplugin", False) and
                                modelXbrl.modelDocument.type in (ModelDocument.Type.INLINEXBRL, ModelDocument.Type.INLINEXBRLDOCUMENTSET))
@@ -2045,7 +2072,6 @@ def edgarRendererGuiRun(cntlr, modelXbrl, *args, **kwargs):
 ''')
                 with open(os.path.join(edgarRenderer.reportsFolder, "Rall.htm"), mode='wb') as f:
                     f.write(b"".join(rAll))
-                shutil.copyfile(os.path.join(edgarRenderer.resourcesFolder, "report.css"), os.path.join(edgarRenderer.reportsFolder, "report.css"))
                 edgarRenderer.logDebug("Write {} complete".format("Rall.htm"))
             # display on web browser
             if showViewer:
@@ -2105,7 +2131,7 @@ def edgarRendererDetectRedlining(modelDocument, *args, **kwargs):
                     cntlr.editedModelXbrls = set()
                     cntlr.redlineIxDocs = {}
                     cntlr.redactTgtElts = set()
-                    cntlr.redactTgtEltContent = set()
+                    cntlr.redactRedlineTgtEltContent = set()
                     cntlr.redactFileReferences = set()
                 if not foundMatchInDoc:
                     cntlr.redlineIxDocs[modelDocument.basename] = modelDocument
@@ -2113,13 +2139,16 @@ def edgarRendererDetectRedlining(modelDocument, *args, **kwargs):
                 if rlMatch.group(2) == "redact":
                     for c in e.iter("{http://www.xbrl.org/2013/inlineXBRL}*"):
                         cntlr.redactTgtElts.add(c)
-                    for c in e.iterancestors("{http://www.xbrl.org/2013/inlineXBRL}*"):
-                        cntlr.redactTgtEltContent.add(c)
                     # track any file references that are being redacted
                     for elt in e.iter("a", "img", "{http://www.w3.org/1999/xhtml}a", "{http://www.w3.org/1999/xhtml}img"):
                         attrValue = getElementReferenceFileName(elt)
                         if attrValue:
                             cntlr.redactFileReferences.add(attrValue)
+                # ancestor of a fact could contain redline or redact
+                # by adding it to redactRedlineTgtEltContent we ensure
+                # the facts are rebuilt in the modelXbrl
+                for c in e.iterancestors("{http://www.xbrl.org/2013/inlineXBRL}*"):
+                    cntlr.redactRedlineTgtEltContent.add(c)
             elif e.tag in ("{http://www.w3.org/1999/xhtml}a", "{http://www.w3.org/1999/xhtml}img") and \
                 not redliningPattern.match(e.getparent().get("style", "")):
                 fileName = getElementReferenceFileName(e)
@@ -2181,7 +2210,7 @@ def identifyDocumentReferences(modelXbrl, document):
                 for c in elt.iter("{http://www.xbrl.org/2013/inlineXBRL}*"):
                     modelXbrl.modelManager.cntlr.redactTgtElts.add(c)
                 for c in elt.iterancestors("{http://www.xbrl.org/2013/inlineXBRL}*"):
-                    modelXbrl.modelManager.cntlr.redactTgtEltContent.add(c)
+                    modelXbrl.modelManager.cntlr.redactRedlineTgtEltContent.add(c)
     return matchingElements
     
 def removeElementsWithDocumentReference(modelXbrl, document):
@@ -2203,7 +2232,7 @@ def removeElementsWithDocumentReference(modelXbrl, document):
 __pluginInfo__ = {
     'name': 'Edgar Renderer',
     'version': VERSION,
-    'description': "This plug-in implements U.S. SEC Edgar Renderer.  Arelle version at SEC: 2.37.12 ",
+    'description': "This plug-in implements U.S. SEC Edgar Renderer.  Arelle version at SEC: 2.39.8 ",
     'license': 'Apache-2',
     'author': 'U.S. SEC Employees and Mark V Systems Limited',
     'copyright': '(c) Portions by SEC Employees not subject to domestic copyright, otherwise (c) Copyright 2015 Mark V Systems Limited, All rights reserved.',

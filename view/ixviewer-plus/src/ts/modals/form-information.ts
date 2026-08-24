@@ -8,7 +8,7 @@ import { Modals } from "./modals";
 import { Constants } from "../constants/constants";
 import { FactMap } from "../facts/map";
 import { ConstantsFunctions } from "../constants/functions";
-import { defaultKeyUpHandler } from "../helpers/utils";
+import { actionKeyHandler } from "../helpers/utils";
 
 export const ModalsFormInformation = {
 
@@ -91,7 +91,7 @@ export const ModalsFormInformation = {
 			Modals.close(event);
 		});
 		document.getElementById('dialog-box-close')?.addEventListener('keyup', (event: KeyboardEvent) => {
-			if (!defaultKeyUpHandler(event)) return;
+			if (!actionKeyHandler(event)) return;
 			Modals.close(event);
 		});
 
@@ -222,7 +222,7 @@ export const ModalsFormInformation = {
 		const possibleLabels = [
 			[{
 				'label': 'Total Facts',
-				'value': Constants.getHtmlOverallFactsCount
+				'value': Constants.factCount
 			}, {
 				'label': 'Inline Version',
 				'value': Constants.getFormInformation.version

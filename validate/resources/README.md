@@ -28,7 +28,7 @@ every time there's another release of the corresponding taxonomy.  SEC staff upd
 
 * List the files which are expected to be regenerated, e.g. `ls *-deprecated-concepts.json` to compare to later.
 
-* Delete all the -deprecated-concepts.json files **except invest-deprecated-concepts.json** (which can't be regenerated), e.g., `rm [cdenrsuv]*deprecated-concepts.json ifrs-full-deprecated-concepts.json`
+* Delete all the -deprecated-concepts.json files **except invest-deprecated-concepts.json** (which can't be regenerated), e.g., `rm [cdeonrsuv]*deprecated-concepts.json ifrs-full-deprecated-concepts.json`
 
 * With arelle selection `efm-pragmatic-all-years` run test suite 622-only-supported-locations/622-01-all-supported-locations with disclosure system validation checked.  There'll be messages such as "[info] loading dei/* deprecated concepts..." as it rebuilds the deprecated files.
 

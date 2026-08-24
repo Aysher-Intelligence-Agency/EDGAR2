@@ -14,7 +14,7 @@ Input file parameters may be in JSON (without newlines for pretty printing as be
       or "ixds":[{"file": "file path to first html"},...]
    "cik": "1234567890",
    "cikNameList": { "cik1": "name1", "cik2":"name2", "cik3":"name3"...},
-   "submissionType" : "SDR-A",
+   "submissionType" : "10-K",
    "exhibitType": "EX-99.K", # this is a legal term, separate from attachmentDocumentType (below)
    "itemsList": [] # array of items, e.g. ["5.03"] (either array of strings blank-separated items in string)
    "accessionNumber":"0001125840-15-000159" ,
@@ -275,7 +275,7 @@ def validateXbrlStart(val, parameters=None, *args, **kwargs):
                         _("parameter ELOparams has malformed JSON %(json)s object"),
                         modelXbrl=val.modelXbrl, json=p[1][:100])
                 break
-    # parameters may also come from report entryPoint (such as attachmentDocumentType for SDR)
+    # parameters may also come from report entryPoint (such as attachmentDocumentType for Fee Exhibits)
     if hasattr(val.modelXbrl.modelManager, "efmFiling"):
         efmFiling = val.modelXbrl.modelManager.efmFiling
         if efmFiling.reports: # possible that there are no reports
@@ -514,7 +514,7 @@ def xbrlLoaded(cntlr, options, modelXbrl, entryPoint, *args, **kwargs):
             _report.entryPoint = entryPoint
             if "accessionNumber" in entryPoint and not hasattr(efmFiling, "accessionNumber"):
                 efmFiling.accessionNumber = entryPoint["accessionNumber"]
-            efmFiling.arelleUnitTests = modelXbrl.arelleUnitTests.copy() # allow unit tests to be used after instance processing finished
+            efmFiling.arelleUnitTests.update(modelXbrl.arelleUnitTests.copy()) # allow unit tests to be used after instance processing finished
             for supplementalXbrl in getattr(modelXbrl, "supplementalModelXbrls", []):
                 if hasattr(supplementalXbrl, "ixdsDocUrls"):
                     entryPoint = {"ixds":[{"file":f} for f in supplementalXbrl.ixdsDocUrls]}
@@ -541,60 +541,6 @@ def filingValidate(cntlr, options, filesource, entrypointFiles, sourceZipStream=
         efmFiling = modelManager.efmFiling
         reports = efmFiling.reports
         # check for dup inline and regular instances
-        # SDR checks
-        if any(report.deiDocumentType and report.deiDocumentType.endswith(" SDR")
-               for report in reports):
-            _kSdrs = [r for r in reports if r.deiDocumentType == "K SDR"]
-            if not _kSdrs and efmFiling.submissionType in ("SDR", "SDR-A"):
-                efmFiling.error("EFM.6.03.08.sdrHasNoKreports",
-                                _("SDR filing has no K SDR reports"))
-            elif len(_kSdrs) > 1:
-                efmFiling.error("EFM.6.03.08.sdrHasMultipleKreports",
-                                _("SDR filing has multiple K SDR reports for %(entities)s"),
-                                {"entities": ", ".join(r.entityRegistrantName for r in _kSdrs),
-                                 "edgarCode": "cp-0308-Sdr-Has-Multiple-K-Reports"},
-                                (r.url for r in _kSdrs))
-            _lSdrEntityReports = defaultdict(list)
-            for r in reports:
-                if r.deiDocumentType == "L SDR":
-                    _lSdrEntityReports[r.entityCentralIndexKey if r.entityCentralIndexKey != "0000000000"
-                                       else r.entityRegistrantName].append(r)
-            for lSdrEntity, lSdrEntityReports in _lSdrEntityReports.items():
-                if len(lSdrEntityReports) > 1:
-                    efmFiling.error("EFM.6.05.24.multipleLSdrReportsForEntity",
-                                    _("Filing entity has multiple L SDR reports: %(entity)s"),
-                                    {"entity": lSdrEntity},
-                                    (r.url for r in lSdrEntityReports))
-            # check for required extension files (schema, pre, lbl)
-            for r in reports:
-                hasSch = hasPre = hasCal = hasLbl = False
-                for f in r.reportedFiles:
-                    if f.endswith(".xsd"): hasSch = True
-                    elif f.endswith("_pre.xml"): hasPre = True
-                    elif f.endswith("_cal.xml"): hasCal = True
-                    elif f.endswith("_lab.xml"): hasLbl = True
-                missingFiles = ""
-                if not hasSch: missingFiles += ", schema"
-                #if not hasPre: missingFiles += ", presentation linkbase"
-                #if not hasLbl: missingFiles += ", label linkbase"
-                if missingFiles:
-                    efmFiling.error("EFM.6.03.02.sdrMissingFiles",
-                                    _("%(deiDocumentType)s report missing files: %(missingFiles)s"),
-                                    {"deiDocumentType": r.deiDocumentType, "missingFiles": missingFiles[2:],
-                                     "edgarCode": "cp-0302-Sdr-Missing-Files"},
-                                    r.url)
-                if not r.hasUsGaapTaxonomy:
-                    efmFiling.error("EFM.6.03.02.sdrMissingStandardSchema",
-                                    _("%(deiDocumentType)s submission must use a US GAAP standard schema"),
-                                    {"deiDocumentType": r.deiDocumentType,
-                                     "edgarCode": "cp-0302-Sdr-Missing-Standard-Schema"},
-                                    r.url)
-                if hasattr(r, "attachmentDocumentType") and r.attachmentDocumentType not in ("EX-99.K SDR", "EX-99.L SDR", "EX-99.K SDR.INS", "EX-99.L SDR.INS"):
-                    efmFiling.error("EFM.6.03.02.sdrHasNonSdrAttachment",
-                                    _("An SDR filing contains non-SDR attachment document type %(attachmentDocumentType)s dei document type %(deiDocumentType)s"),
-                                    {"deiDocumentType": r.deiDocumentType, "attachmentDocumentType": r.attachmentDocumentType,
-                                     "edgarCode": "cp-0302-Sdr-Has-Non-Sdr-Attachment"},
-                                    r.url)
 
         hasInline = False
         hasInstance = False
@@ -891,6 +837,7 @@ class Report:
         self.isInline = modelXbrl.modelDocument.type in (Type.INLINEXBRL, Type.INLINEXBRLDOCUMENTSET)
         self.url = modelXbrl.modelDocument.uri
         self.reportedFiles = set()
+        self.renderedFiles = [] # Rendering Engine R files
         if modelXbrl.modelDocument.type == Type.INLINEXBRLDOCUMENTSET:
             self.basenames = []
             self.filepaths = []
@@ -944,10 +891,10 @@ class Report:
 __pluginInfo__ = {
     # Do not use _( ) in pluginInfo itself (it is applied later, after loading
     'name': 'Validate EFM',
-    'version': '1.25.2', # SEC EDGAR release 25.2
+    'version': '1.26.1', # SEC EDGAR release 26.1
     'description': '''EFM Validation.''',
     'license': 'Apache-2',
-    'import': ('EDGAR/transform',), # SEC inline can use SEC transformations
+    'import': ('EDGAR/transform', 'xule'), # SEC inline can use SEC transformations
     'author': authorLabel,
     'copyright': copyrightLabel,
     'aliases': ('validate/EFM', ),

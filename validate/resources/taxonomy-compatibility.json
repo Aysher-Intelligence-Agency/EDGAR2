@@ -43,7 +43,9 @@
         "stx-2023": [ "dei/2023", "country/2023", "currency/2023", "exch/2023", "naics/2023", "oef/2023", "sic/2023", "stpr/2023", "snj/2023", "rxp/2023", "ecd/2023", "fnd/2023" ], "wch":"these are supposed to be compaitble with everything",
         "stx-2024": [ "dei/2024", "country/2024", "currency/2024", "exch/2024", "naics/2024", "oef/2024", "sic/2024", "stpr/2024", "snj/2024", "rxp/2024", "ecd/2024", "fnd/2024", "sro/2024", "sbs/2024", "vip/2024q4", "fnd/2024q3" ],
         "stx-core-2025": ["dei/2025", "country/2025", "currency/2025", "exch/2025", "naics/2025", "sic/2025", "stpr/2025"],
-        "stx-extended-2025": ["@stx-core-2025", "cyd/2025", "oef/2025", "snj/2025", "rxp/2025", "ecd/2025", "fnd/2025", "sro/2025", "sbs/2025", "spac/2025"]
+        "stx-extended-2025": ["@stx-core-2025", "cyd/2025", "oef/2025", "snj/2025", "rxp/2025", "ecd/2025", "fnd/2025", "sro/2025", "sbs/2025", "spac/2025", "spac/2025q3"],
+        "stx-core-2026": ["dei/2026", "country/2026", "currency/2026", "exch/2026", "naics/2026", "sic/2026", "stpr/2026"],
+        "stx-extended-2026": ["@stx-core-2026", "cyd/2026", "oef/2026", "snj/2026", "rxp/2026", "ecd/2026", "fnd/2026", "sro/2026", "sbs/2026", "spac/2026"]
     },
     "compatible-classes": {
         "comment1": "entries for previously-supported taxonomies, such as disclosure mode efm-pragmatic-all-years",
@@ -76,20 +78,26 @@
 
         "us-gaap/2024": ["@stx-2024", "srt/2024", "ifrs/2024", "cef/2024", "vip/2024", "vip/2024q4"],
         "us-gaap/2025": ["@stx-extended-2025", "srt/2025", "ifrs/2025", "cef/2025", "vip/2025"],
+        "us-gaap/2026": ["@stx-extended-2026", "srt/2026", "cef/2026", "vip/2026"],
 
         "ifrs/2024": ["us-gaap/2024", "srt/2024", "@stx-2024"],
         "ifrs/2025": ["us-gaap/2025", "srt/2025", "@stx-extended-2025"],
 
         "cef/2024": ["@stx-2024", "us-gaap/2024", "srt/2024"],
         "cef/2025": ["@stx-extended-2025", "us-gaap/2025", "srt/2025"],
+        "cef/2026": ["@stx-extended-2026", "us-gaap/2026", "srt/2026"],
 
         "srt/2024": ["@stx-2024", "vip/2024", "vip/2024q4"],
         "srt/2025": ["@stx-extended-2025", "vip/2025"],
+        "srt/2026": ["@stx-extended-2026", "vip/2026"],
 
         "vip/2024": ["@stx-2024", "us-gaap/2024", "srt/2024"],
         "vip/2024q4": ["@stx-2024", "us-gaap/2024", "srt/2024"],
         "vip/2025": ["@stx-core-2025", "us-gaap/2025", "srt/2025"],
+        "vip/2026": ["@stx-core-2026", "us-gaap/2026", "srt/2026"],
 
-        "ffd/2025": ["@stx-core-2025"]
+        "ffd/2025": ["@stx-core-2025"],
+        "ffd/2025q4": ["@stx-core-2025"],
+        "ffd/2026": ["@stx-core-2026"]
         }
 }

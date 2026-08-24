@@ -11,10 +11,11 @@ import { Section } from "../interface/meta";
 //Not really used (see comment below)
 type MetaDocument = any;
 
-export const Constants =
-{
-	version: "25.2",
+export const Constants = {
+	version: "26.1",
 	featureSet: "plus",
+	appStart: 0,
+	loadPhaseComplete: 0,
 
 	appWindow: (() => {
 		if (typeof window == 'undefined') return {} as Window;
@@ -35,7 +36,23 @@ export const Constants =
 		}
 	})(),
 
+	// holds array of objects { perfMetric, moduleTime, totalElapsedTime }
+	perfTableJs: [] as object[],
+	perfTableDom: [] as object[],
+	elapsedPerfTable: [] as object[],
+	discretePerfTable: [] as object[],
+	logPerfParam: false,
+
+	unused: 'test',
+	axesCount: 0,
+	membersCount: 0,
+	memberLimit: 750, // too many affects search index performance and eats a lot of mem
+
+	getSearchCriteria: {} as { options: { indexOf: (x: any) => number }, regex: RegExp },
+
 	isNcsr: false,
+	sumOfDocsSizes: 0,
+	docSizeFallbackLimit: 70 * 1000000,
 
 	scrollPosition: typeof window !== 'undefined' && window.localStorage.getItem("scrollPosition") || "start",
 
@@ -45,7 +62,7 @@ export const Constants =
 
 	getPaginationPerPage: 10,
 
-	getHtmlOverallFactsCount: null as string | null,
+	factCount: null as string | null,
 
 	getMetaSourceDocuments: [] as string[],
 

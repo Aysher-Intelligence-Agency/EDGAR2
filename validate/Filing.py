@@ -110,7 +110,7 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
     styleIxHiddenPattern = re.compile(r"(.*[^\w]|^)-sec-ix-hidden\s*:\s*([\w.-]+).*")
     styleIxRedactPattern = re.compile(r"(.*;)?\s*-sec-ix-redact\s*:\s*true(?:\s*;)?\s*([\w.-].*)?$")
     efmRoleDefinitionPattern = re.compile(r"([0-9]+) - (Statement|Disclosure|Schedule|Document) - (.+)")
-    messageKeySectionPattern = re.compile(r"(.*[{]efmSection[}]|[a-z]{2}-[0-9]{4})(.*)")
+    messageKeySectionPattern = re.compile(r"(.*[{]efmSection[}]|[a-z]{2}-[0-9]{4}|dq-)(.*)")
     secDomainPattern = re.compile(r"(fasb\.org|xbrl\.sec\.gov)")
 
     val._isStandardUri = {}
@@ -649,9 +649,17 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
         val.entityRegistrantName = deiItems.get("EntityRegistrantName") # used for name check in 6.8.6
 
         # 6.05..23,24 check (after dei facts read)
-        if not (isEFM and deiDocumentType == "L SDR"): # allow entityIdentifierValue == "0000000000" or any other CIK value
+        if not (isEFM and deiDocumentType in ("L SDR", "K SDR")): # allow entityIdentifierValue == "0000000000" or any other CIK value
             if disclosureSystem.deiFilerIdentifierElement in deiItems:
                 value = deiItems.get(disclosureSystem.deiFilerIdentifierElement)
+                if value == "0000000000":
+                    # XBRL Guide 3.1.3 Central Index Key
+                    # A dei:EntityCentralIndexKey fact with value a full ten-digit CIK other than 0000000000 from among the co-registrants in the submission header.
+                    val.modelXbrl.error("EFM.6.05.02",
+                        _("The %(elementName)s, %(value)s, must be a full 10-digit CIK other than 0000000000."),
+                        edgarCode="cp-0502-Non-Matching-Cik",
+                        modelObject=deiFilerIdentifierFact, elementName=disclosureSystem.deiFilerIdentifierElement,
+                        value=value)
                 if entityIdentifierValue != value:
                     val.modelXbrl.error(("EFM.6.05.23", "GFM.3.02.02"),
                         _("The EntityCentralIndexKey, %(value)s, does not match the context identifier CIK %(entityIdentifier)s.  "
@@ -700,14 +708,11 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
 
         val.modelXbrl.profileActivity("... filer fact checks", minTimeToShow=1.0)
 
-        if len(contextIDs) > 0: # check if contextID is on any undefined facts
-            for undefinedFact in modelXbrl.undefinedFacts:
-                contextIDs.discard(undefinedFact.get("contextRef"))
-            if len(contextIDs) > 0:
-                modelXbrl.error(("EFM.6.05.08", "GFM.1.02.08"),
-                                _("The instance document contained a context %(contextIDs)s that was not used in any fact. Please remove the context from the instance."),
-                                edgarCode="du-0508-Unused-Context",
-                                modelXbrl=modelXbrl, contextIDs=", ".join(str(c) for c in contextIDs))
+        if len(modelXbrl.ixdsUnmappedContexts) > 0:
+            modelXbrl.error(("EFM.6.05.08", "GFM.1.02.08"),
+                            _("The instance document contained a context %(contextIDs)s that was not used in any fact. Please remove the context from the instance."),
+                            edgarCode="du-0508-Unused-Context",
+                            modelXbrl=modelXbrl, contextIDs=", ".join(str(c) for c in modelXbrl.ixdsUnmappedContexts))
 
         #6.5.9, .10 start-end durations
         if disclosureSystem.GFM or \
@@ -840,10 +845,10 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                 date = deprecatedConceptDates[conceptQn]
                 version1 = abbreviatedNamespace(conceptQn.namespaceURI)
                 modelXbrl.warning("EFM.6.05.42",
-                    _("Concept %(element)s in %(version1)s used in %(count)s facts was deprecated in %(version2)s as of %(date)s and should not be used."),
+                    _("Concept %(element)s in %(version1)s used in %(count)s facts was deprecated as of %(date)s and should not be used."),
                     edgarCode="dq-0542-Deprecated-Concept",
                     modelObject=facts, element=conceptQn.localName, count=len(facts), date=date,
-                    version1=version1, version2=version1[:-4]+date[0:4])
+                    version1=version1)
 
         del deprecatedConceptContexts, deprecatedConceptFacts, deprecatedConceptDates, nonNegFacts
         val.modelXbrl.profileActivity("... filer unit checks", minTimeToShow=1.0)
@@ -1090,7 +1095,10 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                     logArgs["severity"] = severity
                 for validationParam, validationParamValue in validation.items():
                     if validationParam not in ("message", "severity", "comment"):
-                        logArgs[validationParam] = validationParamValue
+                        if sev.get(validationParam):
+                            logArgs[validationParam] = sev.get(validationParam)
+                        else:
+                            logArgs[validationParam] = validationParamValue
                 severity = severity.upper()
                 if severity == "WARNINGIFPRAGMATICELSEERROR":
                     severity = "WARNING" if validateEFMpragmatic else "ERROR"
@@ -1124,14 +1132,16 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
 
                 # replacement for efmSection. Based on sev msgSection
                 if sev.get("msgSection"):
-                    msgPrefix, _, msgSectionNumber = sev["msgSection"].partition(":")
-                    logArgs[f"{msgPrefix.lower()}Section"] = msgPrefix
+                    msgPrefix, _sep, msgSectionNumber = sev["msgSection"].partition(":")
                     logArgs["arelleCode"] = msgPrefix
+                    section = f"{msgPrefix.lower()}Section"
+                    logArgs[section] = ""
                     for i, e in enumerate(msgSectionNumber.split(".")):
                         if i > 0 :
                             if e.isnumeric(): # e.g. [6,5,2] -> "6.05.02"
                                 e = e.zfill(2)
                         logArgs["arelleCode"] += "." + e
+                        logArgs[section] += e
 
                 logArgs["edgarCode"] = messageKey # edgar code is the un-expanded key for message with {...}'s
                 try:
@@ -1376,6 +1386,18 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                                         items.append(fw)
                                     itemVals = [g.xValue if g is not None else 0 for g in items]
                                     wValue = sum(itemVals)
+                                elif "!axis-exist!" == wName:
+                                    for axisKey in wCond:
+                                        axes = deiValidations["axis-validations"][axisKey]["axes"]
+                                        axesQNs = [qname(axis, deiDefaultPrefixedNamespaces) for axis in axes]
+                                        for axisQN in axesQNs:
+                                            if not modelXbrl.factsByDimMemQname(axisQN):
+                                                skipF = True
+                                                break
+                                    if skipF:
+                                        break
+                                    else:
+                                        continue
                                 else:
                                     fw = sevFact(sev, wName, f, sevCovered=False)
                                     wValue = "absent" if fw is None else fw.xValue
@@ -2062,10 +2084,33 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                                     f.xValid = INVALID
                             if f is None and name in eloValueFactNames:
                                 missingReqInlineTag = True
+                elif validation == "max-decimals":
+                    maxDecimals = sev.get("max-decimals", 0)
+                    for name in names:
+                        for f in sevFacts(sev, name, requiredContext=not axisKey, whereKey="where", sevCovered=subTypes != {"n/a"}):
+                            try:
+                                decimalPrecision = abs(Decimal(f.xValue).as_tuple().exponent)
+                            except Exception:
+                                modelXbrl.debug(
+                                    "arelle:ValidationException",
+                                    _("An unexpected exception occurred in Arelle\n%(traceback)s"),
+                                    traceback=traceback.format_exception(*sys.exc_info())
+                                )
+                                decimalPrecision = 0
+                            if decimalPrecision > maxDecimals:
+                                sevMessage(sev, subType=submissionType, modelObject=f, efmSection=efmSection, tag=ftName(name), label=ftLabel(name), value=f"!do-not-quote!{f.value}", decimals=decimalPrecision, maxDecimals=maxDecimals, ftContext=ftContext(axisKey,f))
+                                # avoid writing to store-db-object since this is an invalid value
+                                f.xValid = INVALID
                 elif validation  == "not-in-future":
                     for name in names:
                         for f in sevFacts(sev, name):
-                            if deiDocumentType and f.context.endDatetime > documentTypeFact.context.endDatetime:
+                            if (
+                                deiDocumentType
+                                # invalid context may not have endDatetime
+                                and f.context.endDatetime
+                                and documentTypeFact.context.endDatetime
+                                and f.context.endDatetime > documentTypeFact.context.endDatetime
+                            ):
                                 sevMessage(sev, subType=submissionType, modelObject=f, efmSection=efmSection, tag=name, context="context " + f.contextID)
 
                 elif validation in ("ru", "ou"):
@@ -2116,10 +2161,12 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                         if fr is None and f is not None:
                             sevMessage(sev, subType=submissionType, modelObject=sevFacts(sev), tag=name, otherTag=referenceTag, value=fr.xValue, contextID=fr.contextID)
                 elif validation == "required-context-duration":
-                    monthsDuration = (val.requiredContext.endDatetime - val.requiredContext.startDatetime).days / 30.4375 # 30.4375 specified by DERA to use in the transforms for days to months
-                    if not value - 1 < monthsDuration < value + 1: # fractional months likely due to days per month
-                        sevMessage(sev, subType=submissionType, modelObject=val.requiredContext, tag="Required Context Period Duration",
-                                   value=f"{monthsDuration:.1f} months", expectedValue=f"{value} months", contextID=val.requiredContext.id)
+                    # ensure a valid context is provided with endDatetime and startDatetime
+                    if val.requiredContext.endDatetime and val.requiredContext.startDatetime:
+                        monthsDuration = (val.requiredContext.endDatetime - val.requiredContext.startDatetime).days / 30.4375 # 30.4375 specified by DERA to use in the transforms for days to months
+                        if not value - 1 < monthsDuration < value + 1: # fractional months likely due to days per month
+                            sevMessage(sev, subType=submissionType, modelObject=val.requiredContext, tag="Required Context Period Duration",
+                                    value=f"{monthsDuration:.1f} months", expectedValue=f"{value} months", contextID=val.requiredContext.id)
                 # fee tagging
                 elif validation in ("fe", "fw","fo"):
                     instDurNames = defaultdict(list)
@@ -2491,6 +2538,20 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                                         break
                                 if not found:
                                     sevMessage(sev, subType=submissionType, modelObject=None, tag=ftName(name), axis=axisQN, value=value)
+                elif validation and validation.startswith("axis-"):
+                    for name in names:
+                        for f in sevFacts(sev, name, deduplicate=True, whereKey="where", fallback=True):
+                            if f is not None and validation == "axis-not-exist":
+                                if f.xValue in value:
+                                    axisQN = qname(sev["axis-name"], deiDefaultPrefixedNamespaces)
+                                    factsInAxis = modelXbrl.factsByDimMemQname(axisQN)
+                                    if factsInAxis:
+                                        sevMessage(sev, ftContext="Submission / Fees Summary", subType=submissionType, modelObject=None, tag=ftName(name), axisName=sev["axis-name"], value=value)
+                            elif f is None and validation == "axis-exist":
+                                axisQN = qname(sev["axis-name"], deiDefaultPrefixedNamespaces)
+                                factsInAxis = modelXbrl.factsByDimMemQname(axisQN)
+                                if not factsInAxis:
+                                    sevMessage(sev, ftContext="Submission / Fees Summary", subType=submissionType, modelObject=None, tag=ftName(name), axisName=sev["axis-name"], value=value)
                 elif validation == "skip-if-absent":
                     #if efmSection == "ft.r011Flg":
                     #    print("trace") # uncomment for debug tracing specific validation rules
@@ -2511,7 +2572,7 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                         perEnd = fr.xValue + ONE_DAY
                         for name in names:
                             f = sevFact(sev, name)
-                            if f is not None:
+                            if f is not None and f.context.endDatetime and f.context.startDatetime:
                                 monthsDuration = (f.context.endDatetime - f.context.startDatetime).days / 30.4375 # 30.4375 specified by DERA to use in the transforms for days to months
                                 if f.context.endDatetime != perEnd or not 11 < monthsDuration < 13:
                                     sevMessage(sev, subType=submissionType, modelObject=sevFacts(sev), tag=name, otherTag=referenceTag, contextID=f.contextID)
@@ -2524,7 +2585,7 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                             factsInMonth = [0 for i in range(12)] # count per month
                             ns = fr.qname.namespaceURI
                             for f in modelXbrl.facts:
-                                if f.qname.namespaceURI == ns:
+                                if f.qname.namespaceURI == ns and f.context.endDatetime and f.context.startDatetime:
                                     isMonthDuration = 0.8 < (f.context.endDatetime - f.context.startDatetime).days / 30.4375 < 1.2
                                     monthNbr = 12 - (perEnd - f.context.startDatetime).days / 30.4375
                                     monthInt = int(monthNbr + .2)
@@ -3552,7 +3613,7 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                                 relset = modelXbrl.relationshipSet(XbrlConst.parentChild, rel.linkrole)
                                 roleMatch = lbVal.elrPre.match(rel.linkrole)
                                 if ((roleMatch and relTo.qname.namespaceURI != ns and (
-                                             not relTo.type.isDomainItemType or (lbVal.preSources and not
+                                             not getattr(relTo.type, "isDomainItemType", None) or (lbVal.preSources and not
                                              any(relset.isRelated(c, "descendant-or-self", relFrom) for c in preSrcConcepts))))
                                     or
                                     (not roleMatch and not lbVal.preCustELRs and  (relFrom.qname.namespaceURI == ns or relTo.qname.namespaceURI == ns))):
@@ -3578,6 +3639,7 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                 if getattr(lbVal, 'exgDef', None) and ('elrDefDocTypes' not in lbVal or deiDocumentType in lbVal.elrDefDocTypes):
                     tgtMemRoles.clear()
                     tgtMemRels.clear()
+                    relationShipNotPermittedMsgTemplate = "The %(arcrole)s relationship from %(conceptFrom)s to %(conceptTo)s, link role %(linkroleDefinition)s, is not permitted."
                     for rel in modelXbrl.relationshipSet("XBRL-dimensions").modelRelationships:
                         if not isStandardUri(val, rel.modelDocument.uri) and rel.modelDocument.targetNamespace not in val.otherStandardTaxonomies:
                             relFrom = rel.fromModelObject
@@ -3594,7 +3656,7 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                                     )
                                    ):
                                     modelXbrl.error(f"EXG.{lbVal.exgDef}.relationshipNotPermitted",
-                                        _("The %(arcrole)s relationship from %(conceptFrom)s to %(conceptTo)s, link role %(linkroleDefinition)s, is not permitted."),
+                                        _(relationShipNotPermittedMsgTemplate),
                                         edgarCode=f"du-{lbVal.exgDef[3:5]}{lbVal.exgDef[6:]}-Relationship-Not-Permitted",
                                         modelObject=(rel,relFrom,relTo), arc=rel.qname, arcrole=rel.arcrole,
                                         linkrole=rel.linkrole, linkroleDefinition=modelXbrl.roleTypeDefinition(rel.linkrole),
@@ -3619,6 +3681,16 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                                 if 'exgDefTgtMemsUnique' in lbVal and rel.arcrole == XbrlConst.domainMember and lbVal.elrDefRgtMemsRole.match(rel.linkrole):
                                     tgtMemRoles[relTo].add(rel.linkrole)
                                     tgtMemRels[relTo].append(rel)
+                                if getattr(lbVal, 'elrDefTgt', None) and \
+                                    any(r.match(rel.linkrole) and \
+                                         not q.match(str(relTo.qname)) \
+                                                for r, q in lbVal.elrDefTgt):
+                                    modelXbrl.error(f"EXG.{lbVal.exgDef}.relationshipNotPermitted",
+                                        _(relationShipNotPermittedMsgTemplate),
+                                        edgarCode=f"du-{lbVal.exgDef[3:5]}{lbVal.exgDef[6:]}-Relationship-Not-Permitted",
+                                        modelObject=(rel,relFrom,relTo), arc=rel.qname, arcrole=rel.arcrole,
+                                        linkrole=rel.linkrole, linkroleDefinition=modelXbrl.roleTypeDefinition(rel.linkrole),
+                                        conceptFrom=relFrom.qname, conceptTo=relTo.qname)
                     for tgtMem, roles in tgtMemRoles.items():
                         if len(roles) > 1:
                             modelXbrl.error(f"EXG.{lbVal.exgDefTgtMemsUnique}",
@@ -3696,7 +3768,9 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
     # DQC.US rules
     if dqcRules:
         try:
-            if xuleValidate(val): # true if there was a Xule validation
+            if "EFM.6.05.20.documentTypeValue" in modelXbrl.errors:
+                dqcRules = {} # block dqc due to invalid docType
+            elif xuleValidate(val): # true if there was a Xule validation
                 dqcRules = {} # block built-in rules
             else:
                 xuleConstants = loadXuleConstantsForPythonRules(val, dqcRules)
@@ -4653,7 +4727,7 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                     cubeRoots = tableRelSet.rootConcepts
                     for cubeRoot in cubeRoots:
                         for cube in getDescendants("XBRL-dimensions",cubeRoot, linkroleUri, cubeOnly=True):
-                            if (tableRelSet.isRelated(cube, "descendant", dimToSkipIfPresent, isDRS=True) or
+                            if ( (dimToSkipIfPresent is not None and tableRelSet.isRelated(cube, "descendant", dimToSkipIfPresent, isDRS=True)) or
                                 not tableRelSet.isRelated(cube, "descendant", dimConcept, isDRS=True) or not any(
                                     priItemRelSet.isRelated(cubeRoot, "descendant", priItemConcept, isDRS=True)
                                     for priItemConcept in priItemConcepts)):
@@ -4769,7 +4843,7 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                     for rel in modelXbrl.relationshipSet(XbrlConst.dimensionDomain).modelRelationships:
                         if rel.fromModelObject is not None and rel.fromModelObject.name not in ignoreDims:
                             checkMember(rel.fromModelObject, rel, set())
-            elif dqcRuleName == "DQC.US.0084":
+            elif dqcRuleName == "DQC.US.0084" and deiDocumentType != "N-CSR": # update for XULE v27 change
                 # 0084 has only one id, rule
                 id, rule = next(iter(dqcRule["rules"].items()))
                 tolerance = rule["tolerance"]
@@ -5038,7 +5112,7 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                             preNumericItems = set(c.name for c in preConcepts if c.isMonetary and c.periodType == "duration")
                             calcItems = set()
                             for rel in calcRelSet.modelRelationships:
-                                if rel.fromModelObject.name in preNumericItems and rel.toModelObject.name in preNumericItems:
+                                if getattr(rel.fromModelObject, 'name', None) in preNumericItems and getattr(rel.toModelObject, 'name', None) in preNumericItems:
                                     calcItems.add(rel.fromModelObject.name)
                                     calcItems.add(rel.toModelObject.name)
                             supplementalCashItems = set()
@@ -5059,7 +5133,7 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                                 preNumericItems = set(c.name for c in preConcepts if c.isMonetary and c.periodType == "duration")
                                 calcItems = set()
                                 for rel in calcRelSet.modelRelationships:
-                                    if rel.fromModelObject.name in preNumericItems and rel.toModelObject.name in preNumericItems:
+                                    if getattr(rel.fromModelObject, "name", None) in preNumericItems and getattr(rel.toModelObject, "name", None) in preNumericItems:
                                         calcItems.add(rel.fromModelObject.name)
                                         calcItems.add(rel.toModelObject.name)
                                 presConceptNoCalculation = preNumericItems - (calcItems | BS_IS_exceptions | IS_SupplementalDisclosures | SHEexceptions)
@@ -5068,7 +5142,7 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                                 preNumericItems = set(c.name for c in preConcepts if c.isMonetary and c.periodType == "instant")
                                 calcItems = set()
                                 for rel in calcRelSet.modelRelationships:
-                                    if rel.fromModelObject.name in preNumericItems and rel.toModelObject.name in preNumericItems:
+                                    if getattr(rel.fromModelObject, "name", None) in preNumericItems and getattr(rel.toModelObject, "name", None) in preNumericItems:
                                         calcItems.add(rel.fromModelObject.name)
                                         calcItems.add(rel.toModelObject.name)
                                 presConceptNoCalculation = preNumericItems - (calcItems | BS_IS_exceptions | IS_SupplementalDisclosures)
@@ -5077,7 +5151,7 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                                 preNumericItems = set(c.name for c in preConcepts if c.isMonetary)
                                 calcItems = set()
                                 for rel in calcRelSet.modelRelationships:
-                                    if rel.fromModelObject.name in preNumericItems and rel.toModelObject.name in preNumericItems:
+                                    if getattr(rel.fromModelObject, "name", None) in preNumericItems and getattr(rel.toModelObject, "name", None) in preNumericItems:
                                         calcItems.add(rel.fromModelObject.name)
                                         calcItems.add(rel.toModelObject.name)
                                 presConceptNoCalculation = preNumericItems - (calcItems | BS_IS_exceptions | IS_SupplementalDisclosures | SHEexceptions)
@@ -5174,7 +5248,7 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                                     continue
                                 if id == "9569":
                                     # if there's a third axis it passes
-                                    if any(a not in localDims for a in axes):
+                                    if any(l not in axes for l in localDims):
                                         continue
                                 if rule.get("where") == "value!=1" and f.xValue == 1:
                                     continue
@@ -5421,7 +5495,7 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                     definition = (roleTypes[0].definition or linkroleUri) if roleTypes else linkroleUri
                     if not "- Statement " in definition:
                         continue
-                    hasStatementLinkrole = False
+                    hasStatementLinkrole = True
                     for stmtRoot in modelXbrl.relationshipSet(XbrlConst.parentChild, linkroleUri).rootConcepts:
                         for stmtConceptName in getDescendants(XbrlConst.parentChild, stmtRoot, linkroleUri):
                             for stmtConcept in modelXbrl.nameConcepts.get(stmtConceptName,()):
@@ -5560,14 +5634,16 @@ def validateFiling(val, modelXbrl, isEFM=False, isGFM=False):
                 Ext_Enum_Minus_Leases = set(ext_pair
                                             for ext_pair in xuleConstants["EXT_ENUM"]
                                             if ext_pair[0] not in rule["LEASE_ITEMS"])
+                fsMonetaryConceptsQnames = {concept.qname for concept in fsMonetaryConcepts}
                 for FS_concept, related_ext_enum in Ext_Enum_Minus_Leases:
-                    for b in factBindings(modelXbrl, (FS_concept.localName,)).values():
+                    for b in factBindings(modelXbrl, (related_ext_enum.localName,)).values():
                         for f in b.values():
-                            if f.concept not in fsMonetaryConcepts:
-                                modelXbrl.warning(f"{dqcRuleName}.{id}", _(logMsg(msg)),
-                                    modelObject=f,
-                                    related_ext_enum=str(related_ext_enum), x=f.xValue,
-                                    edgarCode=edgarCode, ruleElementId=id)
+                            for conceptQname in f.xValue:
+                                if conceptQname not in fsMonetaryConceptsQnames:
+                                    modelXbrl.warning(f"{dqcRuleName}.{id}", _(logMsg(msg)),
+                                        modelObject=f,
+                                        related_ext_enum=str(related_ext_enum), x=conceptQname,
+                                        edgarCode=edgarCode, ruleElementId=id)
             elif dqcRuleName == "DQC.US.0137" and  deiDocumentType in dqcRule["document-types"]:
                 # 0112 has only one id, rule
                 balShtLocAxisQn = incStmtLocAxisQn = None

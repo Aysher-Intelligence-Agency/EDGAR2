@@ -22,6 +22,11 @@ import { buildSectionsArrayFlatter, fetchJson, fetchText, setScaleInfo } from '.
 
 /* eslint-disable @typescript-eslint/ban-types */
 
+type DocMeta = {
+    url: string;
+    size: number | null;
+}
+
 export class FetchAndMerge {
     private absolute: string;
     private params: UrlParams;
@@ -31,6 +36,8 @@ export class FetchAndMerge {
     private sections: Array<Section> = [];
     private metaVersion: string | null = null;
     private instances: InstanceFile[];
+    private sumOfDocsSizes: number;
+    private docSizeFallbackLimit: number;
 
     constructor(input: FetchMergeArgs) {
         this.absolute = input.absolute;
@@ -38,6 +45,16 @@ export class FetchAndMerge {
         this.customPrefix = input.customPrefix || null;
         this.instances = input.instance ?? [];
         this.std_ref = input.std_ref;
+        this.sumOfDocsSizes = 0;
+        this.docSizeFallbackLimit = input.docSizeFallbackLimit
+    }
+
+    activeDocs: DocMeta[] = [];
+
+    async fetchLength(url: string): Promise<number | null> {
+        const res = await fetch(url, { method: "HEAD" });
+        const lengthHeader = res.headers.get("content-length");
+        return lengthHeader ? parseInt(lengthHeader, 10) : null;
     }
 
     public async fetch(): Promise<FMResponse> {
@@ -65,6 +82,27 @@ export class FetchAndMerge {
             });
         };
 
+        const getJustDocs = () => {
+            return this.fetchDocs().then(async (docs) => {
+                const errors = docs.filter((element): element is ErrorResponse =>
+                    element ? Object.prototype.hasOwnProperty.call(element, 'error') : false);
+
+                if (errors.length) {
+                    const errorMessages = errors.map(current => current.messages);
+                    throw { all: { error: true, messages: errorMessages.flat() } };
+                }
+
+                //At this point, neither of the responses had errors, so we can safely cast them
+                docs = docs as Array<{ xhtml: string }>;
+
+                docs.filter((doc): doc is { xhtml: string } => "xhtml" in doc)
+                    .forEach((doc, index) => {
+                        this.activeInstance.docs[index].loaded = true;
+                        this.activeInstance.docs[index].xhtml = doc.xhtml;
+                    });
+            });
+        };
+
         const metaAndSummary = () => {
             return Promise.all([this.fetchMeta(), this.fetchSummary()]).then(([ml, fs]) => {
                 let error = false;
@@ -79,7 +117,6 @@ export class FetchAndMerge {
                     throw { all: { error, messages: messages.flat() } };
                 }
 
-                //At this point, neither of the responses had errors, so we can safely cast them
                 const metalinks = ml as MetaLinks & { instances: InstanceFile[] };
                 const filingSummary = fs as FilingSummary;
 
@@ -105,7 +142,7 @@ export class FetchAndMerge {
 
                     // add xmlUrls to instances
                     const [metaInstanceModel] = instances.filter((inst) => inst.instanceHtm.includes(reportInstanceHtmSlug));
-                    metaInstanceModel.xmlUrl = this.params.metalinks.replace('MetaLinks.json', reportInstanceHtmSlug.replace('.htm', '_htm.xml'));
+                    metaInstanceModel.xmlUrl = this.params.metalinks.replace('MetaLinks.json', reportInstanceHtmSlug.replace(/\.htm$/i, '_htm.xml'));
                 }
             });
 
@@ -115,7 +152,6 @@ export class FetchAndMerge {
             }
         }
 
-
         try {
             let metalinks: (MetaLinks & { instances: InstanceFile[]}) | null = null;
             this.activeInstance = this.instances.filter((element) => element.current)[0];
@@ -124,6 +160,7 @@ export class FetchAndMerge {
 
             if (initialLoad) {
                 const [meta, summ] = await metaAndSummary();
+
                 getInstanceXmlUrlFromFilingSummary(summ, meta.instances);
                 
                 // iterate over FilingSummary.xml Reports to build sections, adding data from metalinks
@@ -139,15 +176,44 @@ export class FetchAndMerge {
                     return acc || _attributes?.isNcsr == "true";
                 }, isNcsr);
             }
+            
+            this.activeDocs = await Promise.all(
+                this.activeInstance.docs.map(async (doc) => ({
+                    url: doc.url,
+                    size: await this.fetchLength(doc.url)
+                }))
+            );
 
-            await docsAndInstance();
+            this.sumOfDocsSizes = this.activeDocs.reduce((acc, cur) => acc + (cur.size || 0), 0)
+            if (this.sumOfDocsSizes > this.docSizeFallbackLimit) {
+                await getJustDocs();
+                // this is returned to the webworker
+                return {
+                    xhtml: this.activeInstance.docs.find((x) => x.current)?.xhtml || "", 
+                    isNcsr,
+                    sumOfDocsSizes: this.sumOfDocsSizes,
+                    docs: this.activeInstance.docs
+                };
+            } else {
+                await docsAndInstance();
+                // this is returned to the webworker
+                return {
+                    xhtml: this.activeInstance.docs.find((x) => x.current)?.xhtml || "", 
+                    isNcsr,
+                    sumOfDocsSizes: this.sumOfDocsSizes
+                };
+            }
 
-            return { xhtml: this.activeInstance.docs.find((x) => x.current)?.xhtml || "", isNcsr };
         }
         catch(e) { this.errorHandling(e) }
     }
 
-    public async facts(): Promise<FMResponse> {
+    public async facts(): Promise<FMResponse | string> {
+        if (this.sumOfDocsSizes > this.docSizeFallbackLimit) {
+            return new Promise((reject) => {
+                reject({error: 'Filing too large'});
+            });
+        }
         try {
             return { facts: this.buildFactMap() };
         }
@@ -156,6 +222,11 @@ export class FetchAndMerge {
 
     public async merge(): Promise<All> {
         try {
+            if (this.sumOfDocsSizes > this.docSizeFallbackLimit) {
+                return new Promise((reject) => {
+                    reject({error: 'Filing too large'});
+                });
+            }
             await this.mergeAllResponses();
 
             const all = {
@@ -209,8 +280,9 @@ export class FetchAndMerge {
     private fetchDocs(): Promise<Array<{ xhtml: string } | ErrorResponse>> {
         const promises = this.activeInstance?.docs?.map((doc: { url: string }) => {
             return new Promise<{ xhtml: string } | ErrorResponse>((resolve) => {
-                //TODO: use `HelpersUrl.isWorkstation` instead
+
                 const isWorkstation = doc.url.includes("DisplayDocument.do?");
+
                 let ixvUrl = doc.url;
                 if (isWorkstation) {
                     if (Object.prototype.hasOwnProperty.call(this.params, 'redline') && this.params.redline) {
@@ -221,7 +293,7 @@ export class FetchAndMerge {
                 }
 
                 const params: RequestInit = {
-                    headers: { "Content-Type": "application/xhtml+xml" },
+                    headers: { "Content-Type": "text/html" },
                     mode: 'no-cors',
                     credentials: 'include',
                 };
@@ -353,8 +425,10 @@ export class FetchAndMerge {
         if (isWorkstation) {
             // If methods from HelpersUrl are used here some very strange bugs occur, such as window and localStorage undefined.
             if (Object.prototype.hasOwnProperty.call(this.params, 'redline') && this.params.redline) {
+                // private
                 xmlUrl = xmlUrl.replace('_htm.xml', '_ht2.xml')
             } else {
+                // public
                 xmlUrl = xmlUrl.replace('_htm.xml', '_ht1.xml')
             }
         }
@@ -404,7 +478,7 @@ export class FetchAndMerge {
             customPrefix: this.customPrefix || "",
         };
 
-        await new XhtmlPrepper(prepperData).doWork();
+        await new XhtmlPrepper(prepperData).updateFactMapWithDocsData();
     }
 
     private buildInitialFactMap(instanceXml: Instance): Map<string, SingleFact> {
@@ -422,7 +496,7 @@ export class FetchAndMerge {
 
         const context = instance[xbrlKey][contextKey];
         const unit = instance[xbrlKey][unitKey] || [];
-        const footnote = instance[xbrlKey]['link:footnoteLink'];
+        const instanceFootnoteData = instance[xbrlKey]['link:footnoteLink'];
 
         delete instance[xbrlKey][contextKey];
         delete instance[xbrlKey][unitKey];
@@ -457,7 +531,7 @@ export class FetchAndMerge {
                 decimals: this.setDecimalsInfo(attributes.decimals || ""),
                 decimalsVal: attributes.decimals,
                 sign: null, // sign exists as attr in inlineDoc, not instance
-                footnote: this.setFootnoteInfo(ix, footnote),
+                footnote: this.setFootnoteInfoOnFact(ix, instanceFootnoteData),
                 isEnabled: true,
                 isHighlight: false,
                 isSelected: false,
@@ -524,19 +598,24 @@ export class FetchAndMerge {
             return [];
         }
 
+        const addDimensionRefToFactRefs = (seg: any, refKeys: string[]) => {
+            if (seg.dimension) refKeys.push(...getRefFromMetalinks(seg.dimension));
+            if (seg.member) refKeys.push(...getRefFromMetalinks(seg.member));
+            return refKeys;
+        }
+
         this.activeInstance?.map.forEach((currentFact: SingleFact) => {
             /* 
                 @Doc: Fact 'tags' in metalinks.json vs fact 'names' in instance and doc files
                 facts are stored in metalinks.json under instance[<instanceName>].tags
-                Not sure why they are called 'tags'
-                Tags in xbrl speak are 'concepts', which are also qNames.
-                Some tag names look like: 
+                Tags can be concepts or dimensions which are also qNames.
+                Some tag names look like:
                     dei_AmendmentDescription
                 They have underscores, but in the instance and doc files they have colons:
                     dei:AmendmentDescription
             */
             const factNameTag = currentFact.name.replace(':', '_');
-            const factObjectMl = this.activeInstance && this.activeInstance.metaInstance && this.activeInstance.metaInstance.tag ? this.activeInstance.metaInstance.tag[factNameTag]: null; // Ml being metalinks
+            const factObjectMl = this.activeInstance?.metaInstance?.tag ? this.activeInstance.metaInstance?.tag[factNameTag] : null;
 
             if (factObjectMl) {
 
@@ -547,17 +626,15 @@ export class FetchAndMerge {
                     let referenceKeys = [...factObjectMl.auth_ref];
 
                     if (currentFact.segment) {
-                        const refKeys: string[] = [];
+                        let refKeys: string[] = [];
 
-                        currentFact.segment.forEach((seg: any) => {
+                        currentFact.segment.map((seg: any) => {
                             if (Array.isArray(seg)) {
                                 seg.forEach((nestedSeg: any) => {
-                                    if (nestedSeg.dimension) refKeys.push(...getRefFromMetalinks(nestedSeg.dimension));
-                                    if (nestedSeg.axis) refKeys.push(...getRefFromMetalinks(nestedSeg.axis));
+                                    refKeys = addDimensionRefToFactRefs(nestedSeg, refKeys);
                                 })
                             } else {
-                                if (seg.dimension) refKeys.push(...getRefFromMetalinks(seg.dimension));
-                                if (seg.axis) refKeys.push(...getRefFromMetalinks(seg.axis));
+                                refKeys = addDimensionRefToFactRefs(seg, refKeys);
                             }
                         })
 
@@ -569,7 +646,6 @@ export class FetchAndMerge {
                         .filter(Boolean);
 
                     currentFact.references = references.length > 0 ? references : null;
-
 
                     // this order specifically for Fact References
                     // any other key => value will be ignored and not shown to the user
@@ -801,32 +877,104 @@ export class FetchAndMerge {
         }
     }
 
+    private getTagLabelFromMetalinks = (tag: string) => {
+        const mlDimTag = tag.replace(':', '_');
+        if (this.activeInstance?.metaInstance?.tag && this.activeInstance.metaInstance.tag[mlDimTag]) {
+            let engLang = this.activeInstance.metaInstance.tag[mlDimTag].lang?.['en-us'];
+            if (!engLang) engLang = this.activeInstance.metaInstance.tag[mlDimTag].lang?.['en-US'];
+            const label = engLang?.role?.label;
+            return label || tag;
+        }
+    }
+    
     private setSegmentData(context: Context | undefined) {
+        // we want to think of these as aspects of a fact with key value pairs
+        // for typed members 
+        //      - it's dimension value will be the type of axis it is
+        //      - it's member value will be the value on that axis
+        // Segment is a container tag for dimensional data.
+        // There is only one segment tag for a fact (stored in context), but segment can contain multiple dimension tags
+
+        /*
+        Example Typed Member as xml
+        <segment>
+            <xbrldi:typedMember dimension="sbs:SbsefTradgSysOrPltfmAxis">
+                <sbs:SbsefTradgSysOrPltfmAxis.domain>
+                    1
+                </sbs:SbsefTradgSysOrPltfmAxis.domain>
+            </xbrldi:typedMember>
+        </segment>
+
+        example in json
+        {
+            sbs:SbsefTradgSysOrPltfmAxis.domain: {
+                _text: '1'
+            },
+            _attributes: {
+                dimension: 'sbs:SbsefTradgSysOrPltfmAxis'
+            }
+        }
+        */
+
+        /*
+        Example of Explicit Member 
+
+        xml data:
+        <segment>
+            <xbrldi:explicitMember dimension="us-gaap:StatementClassOfStockAxis">us-gaap:CommonStockMember</xbrldi:explicitMember>
+            <xbrldi:explicitMember dimension="dei:EntityListingsExchangeAxis">exch:XCHI</xbrldi:explicitMember>
+        </segment>
+
+        json data (first one)
+        {
+            _attributes: {
+                dimension: 'us-gaap:StatementClassOfStockAxis'
+            }
+            _text: "us-gaap:CommonStockMember"
+        }
+
+        display as:
+        (dimension)                         (member)
+        Class of Stock [Axis]               Common Stock [Member]
+        Entity Listings, Exchange [Axis]    NEW YORK STOCK EXCHANGE, INC. [Member]
+
+        */
+
+
         const context2 = Array.isArray(context) ? context : [context];
-        context2.forEach((current) => {
-            if (current.entity && current.entity.segment) {
-                current.entity.segment.data = Object.keys(current.entity.segment).map((key) => {
-                    if (Array.isArray(current.entity.segment[key])) {
-                        return current.entity.segment[key].map((segment: { _attributes: { dimension: string; }; _text: string; }) => {
-                            return {
-                                axis: segment._attributes.dimension,
-                                dimension: segment._text,
-                                type: key.endsWith('explicitMember') ? 'explicit' : 'implicit'
-                            }
+        context2.forEach((ctx) => {
+            if (ctx.entity && ctx.entity.segment) {
+                const segment = ctx.entity.segment;
+                segment.data = Object.keys(segment).map((tag) => {
+                    const isExplicit = tag.endsWith('explicitMember');
+                    if (Array.isArray(segment[tag])) {
+                        return segment[tag].map((seg: { _attributes: { dimension: string; }; _text: string; }) => {
+                            const memberVal = seg._text
+                                ? seg._text
+                                : seg[Object.keys(seg).filter((element: string) => !element.startsWith('_'))[0]]?._text;
+                            const dimensionData = {
+                                axis: seg._attributes.dimension,
+                                dimension: seg._attributes.dimension,
+                                dimensionLabel: this.getTagLabelFromMetalinks(seg._attributes.dimension),
+                                type: isExplicit ? 'explicit' : 'implicit',
+                                member: memberVal
+                            };
+                            if (isExplicit) dimensionData.memberLabel = this.getTagLabelFromMetalinks(memberVal);
+                            return dimensionData;
                         });
                     } else {
-                        return {
-                            axis: current.entity.segment[key]._attributes.dimension,
-                            dimension: current.entity.segment[key]._text ?
-                                current.entity.segment[key]._text :
-                                current.entity.segment[key][Object.keys(current.entity.segment[key]).filter(element => !element.startsWith('_'))[0]]?._text,
-                            type: key.endsWith('explicitMember') ?
-                                'explicit' :
-                                'implicit',
-                            value: !key.endsWith('explicitMember') ?
-                                current.entity.segment[key][Object.keys(current.entity.segment[key])[1]]._text :
-                                null
+                        const memberVal = isExplicit 
+                            ? segment[tag]._text
+                            : segment[tag][Object.keys(segment[tag])[1]]._text;
+                        const dimensionData = {
+                            axis: segment[tag]._attributes.dimension,
+                            dimension: segment[tag]._attributes.dimension,
+                            dimensionLabel: this.getTagLabelFromMetalinks(segment[tag]._attributes.dimension),
+                            type: isExplicit ? 'explicit' : 'implicit',
+                            member: memberVal
                         };
+                        if (isExplicit) dimensionData.memberLabel = this.getTagLabelFromMetalinks(memberVal);
+                        return dimensionData;
                     }
                 });
             }
@@ -922,6 +1070,7 @@ export class FetchAndMerge {
      * @returns {any} concatenated text from all footnote nodes, joined by a ' '
      */
     private accumulateFootnoteText(ftObj: LinkFootnote | Record<string, unknown>, result = "") {
+        // https://jira.edgar.sec.gov/browse/EDGARDEV-29476
         const truncateFootnoteTo = 100;
 
         if (result?.length > truncateFootnoteTo) {
@@ -929,8 +1078,7 @@ export class FetchAndMerge {
             return result += ' ...';
         }
 
-        Object.entries(ftObj).forEach(([key, value]) =>
-        {
+        Object.entries(ftObj).forEach(([key, value]) => {
             if (key == "_text") {
                 result += String(value);
             }
@@ -950,7 +1098,7 @@ export class FetchAndMerge {
     /**
      * Description
      * @param {any} id:string
-     * @param {any} footnotes:{"link:loc":LinkLOC[]
+     * @param {any} instanceFootnotes:{"link:loc":LinkLOC[]
      * @param {any} "link:footnote":LinkFootnote[];"link:footnoteArc":LinkFootnoteArc[];}
      * @param {string} asXmlString footnotes part of fetched xml text
      * @returns {any} renderable footnote text (or xml string) to be displayed in fact modal
@@ -958,81 +1106,89 @@ export class FetchAndMerge {
      * todo: handle images, tables, ...other html elements (currently just concatenating text content)
      * the above todos are WIP and are handled when useFetchedFootnoteXmlStrings is set to true.
      */
-    private setFootnoteInfo(id: string, footnotes: {
+
+    /*
+        Note on Footnotes
+        - footnote text is in the instance file (_htm.xml)
+    */
+    private setFootnoteInfoOnFact(factId: string, instanceFootnotes: {
         "link:loc": LinkLOC[],
         "link:footnote": LinkFootnote[],
         "link:footnoteArc": LinkFootnoteArc[],
         "asXmlString": string,
     }) {
-        if (footnotes && footnotes['link:footnoteArc']) {
-            const factFootnote = Array.isArray(footnotes['link:footnoteArc']) 
-                ? footnotes['link:footnoteArc'].find((element) => element._attributes['xlink:from'] === id ) 
-                : [footnotes['link:footnoteArc']].find((element) => element._attributes['xlink:from'] === id )
-            if (factFootnote) {
-                if (footnotes['link:footnote']) {
-                    if (Array.isArray(footnotes['link:footnote'])) {
-                        // multiple footnotes on instance
-                        const actualFootnote = footnotes['link:footnote']?.find((element) => {
-                            return element._attributes.id === factFootnote._attributes['xlink:to'];
+        if (instanceFootnotes && instanceFootnotes['link:footnoteArc']) {
+            /*
+            link:footnoteArc tags are link tags consisting of:
+                xlink:from (some fact id) 
+                xlink:to (some xlink:footnote id that contains actual footnote content.)
+            */
+            let factFootnoteArcTags = Array.isArray(instanceFootnotes['link:footnoteArc'])
+                ? instanceFootnotes['link:footnoteArc'].filter((element) => element._attributes['xlink:from'] === factId ) 
+                : [instanceFootnotes['link:footnoteArc']].find((element) => element._attributes['xlink:from'] === factId );
+            if (!Array.isArray(factFootnoteArcTags) && typeof factFootnoteArcTags === 'object') {
+                factFootnoteArcTags = [factFootnoteArcTags];
+            }
+
+            if (factFootnoteArcTags?.length && instanceFootnotes['link:footnote']) {
+                if (Array.isArray(instanceFootnotes['link:footnote'])) {
+                    const factFootnoteTags = factFootnoteArcTags?.map(arcTag => arcTag._attributes['xlink:to'])
+                        .map(footnoteId => instanceFootnotes['link:footnote'].find((footnoteElem) => footnoteElem._attributes.id === footnoteId));
+
+                    if (Array.isArray(factFootnoteTags)) {
+                        const footnotesTexts = factFootnoteTags.map(footnote => {
+                            return this.accumulateFootnoteText(footnote || {} as Record<string, unknown>);
                         });
-
-                        const useFetchedFootnoteXmlStrings = false;
-                        const useParsedFootnote = !useFetchedFootnoteXmlStrings;
-
-                        if (useParsedFootnote) {
-                            return this.accumulateFootnoteText(actualFootnote || {} as Record<string, unknown>);
-                        }
-
-                        // Rest of this if block is WIP for rendering all div types in footnote cell
-
-                        // GO FIND PART OF footnotes.xmlString that corresponds to actual footnote
-                        // return that substring ... so you can render it in fact-pages.ts
-                        // we only need '<link:footnote ... > string for each footnote to render
-                        // find all <link:footnote ... > xml strings and put in array
-                        // then find the one that matches the xlink:to value with its id
-
-                        const startTagRegex = /<link:footnote /gi; 
-                        let startTagResults: RegExpExecArray | null = null;
-                        const footnoteStartIndices:number[] = [];
-                        while (!!(startTagResults = startTagRegex.exec(footnotes.asXmlString))) {
-                            footnoteStartIndices.push(startTagResults.index);
-                        }
-
-                        const endTagRegex = /<\/link:footnote>/gi; 
-                        let endTagResults: RegExpExecArray | null = null;
-                        const footnoteEndIndices:number[] = [];
-                        while (!!(endTagResults = endTagRegex.exec(footnotes.asXmlString))) {
-                            footnoteEndIndices.push(endTagResults.index + ('</link:footnote>').length);
-                        }
-
-                        const footnotesAsXmlStrings: string[] = [];
-
-                        footnoteStartIndices.forEach((start, indexInArrayOfStarts) => {
-                            const pluckedFootnote = footnotes.asXmlString.substring(start, footnoteEndIndices[indexInArrayOfStarts]);
-                            footnotesAsXmlStrings.push(pluckedFootnote);
-                        })
-
-                        const relevantFootnoteAsXmlString = footnotesAsXmlStrings.find(fn => {
-                            return fn.indexOf(factFootnote._attributes['xlink:to']) != -1;
-                        })
-
-                        return relevantFootnoteAsXmlString;
+                        return footnotesTexts.join('<br>');
                     } else {
-                        // single footnote on instance
-                        // TODO we need way more cases
-                        //uhh, no we don't, because the first 2 cases cover EVERYTHING
-                        if (!Array.isArray(footnotes['link:footnote']._text)) {
-                            return footnotes['link:footnote']._text;
-                        } else if (Array.isArray(footnotes['link:footnote']._text)) {
-                            return footnotes['link:footnote']._text.join('');
-                        } else if (footnotes['link:footnote']['xhtml:span']) {
-                            return footnotes['link:footnote']['xhtml:span']._text;
-                        }
+                        return this.accumulateFootnoteText(factFootnoteTags || {} as Record<string, unknown>);
                     }
+                } else {
+                    return this.accumulateFootnoteText(instanceFootnotes['link:footnote'] || {} as Record<string, unknown>);
                 }
             }
         }
         return null;
+    }
+
+    private wipFootnoteParser = () => {
+        // removed from setFootnoteInfo() for clarity
+        // this block is WIP for rendering all div types in footnote cell
+
+        // GO FIND PART OF footnotes.xmlString that corresponds to actual footnote
+        // return that substring ... so you can render it in fact-pages.ts
+        // we only need '<link:footnote ... > string for each footnote to render
+        // find all <link:footnote ... > xml strings and put in array
+        // then find the one that matches the xlink:to value with its id
+
+        /*
+            const startTagRegex = /<link:footnote /gi;
+            let startTagResults: RegExpExecArray | null = null;
+            const footnoteStartIndices:number[] = [];
+            while (!!(startTagResults = startTagRegex.exec(instanceFootnotes.asXmlString))) {
+                footnoteStartIndices.push(startTagResults.index);
+            }
+
+            const endTagRegex = /<\/link:footnote>/gi; 
+            let endTagResults: RegExpExecArray | null = null;
+            const footnoteEndIndices:number[] = [];
+            while (!!(endTagResults = endTagRegex.exec(instanceFootnotes.asXmlString))) {
+                footnoteEndIndices.push(endTagResults.index + ('</link:footnote>').length);
+            }
+
+            const footnotesAsXmlStrings: string[] = [];
+
+            footnoteStartIndices.forEach((start, indexInArrayOfStarts) => {
+                const pluckedFootnote = instanceFootnotes.asXmlString.substring(start, footnoteEndIndices[indexInArrayOfStarts]);
+                footnotesAsXmlStrings.push(pluckedFootnote);
+            })
+
+            const relevantFootnoteAsXmlString = footnotesAsXmlStrings.find(fn => {
+                return fn.indexOf(factFootnoteArcTags._attributes['xlink:to']) != -1;
+            })
+
+            return relevantFootnoteAsXmlString;
+        */
     }
 
     private getCalculationWeight(weight: number) {

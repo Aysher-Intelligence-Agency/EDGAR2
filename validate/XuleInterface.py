@@ -37,8 +37,10 @@ DOCSKIP
 """
 import optparse, os, json
 import regex as re
+import traceback
+import sys
 from arelle import PluginManager
-from arelle.PythonUtil import attrdict
+from arelle.PythonUtil import attrdict, pyNamedObject
 from .Util import usgaapYear
 
 """ Xule validator specific variables."""
@@ -61,25 +63,35 @@ DQC_plugin_url_pattern = re.compile(r"validate[/\\]DQC(\.py)?")
 
 DQCRT_RUN_ONLY_PATTERN = (r"DQC\.US\.(" # separate rules 0000-0009, 0010-0099, 0100-01XX
     "000[145689]|"
-    "001[345]|003[36]|004[1345678]|005[123457]|006[012589]|007[01236789]|008[459]|009[01589]|"
-    "010[89]|011[289]|012[368]|013[34567]|0141"
+    "001[345]|003[36]|004[13456789]|005[123457]|006[012589]|007[01236789]|008[459]|009[014589]|"
+    "010[789]|011[02346789]|012[023568]|013[1345679]|014[01345789]|015[0345679]|016[135]"
     ")")
 
 """Do not change anything below this line."""
 _xule_plugin_info = None
 xuleValidateFinally = None
+xulePluginDoesNotExist = False
+user_defined_xule_rule_set = False
+user_defined_xule_args_file = False
 
 def noop(*args, **kwargs):
     return # do nothing
 
 def init(cntlr):
-    global xuleValidateFinally
+    global xuleValidateFinally, user_defined_xule_rule_set, user_defined_xule_args_file
     if xuleValidateFinally is None:
         xuleValidateFinally = getXuleMethod(cntlr, 'Validate.Finally')
         if xuleValidateFinally is not None: # xule is loaded
-            # add EDGAR mapping for resource files to disclosureSystem.mappings
-            if cntlr.modelManager.disclosureSystem:
-                mappedPath = f"{os.sep}__xule_resources_dir__"
+            xuleOptions = getattr(cntlr, "xule_vars", {}).get("options")
+            if getattr(xuleOptions, "xule_rule_set", None):
+                user_defined_xule_rule_set = True
+            if getattr(xuleOptions, "xule_args_file", None):
+                user_defined_xule_args_file = True
+    if xuleValidateFinally is not None: # xule is loaded
+        # add EDGAR mapping for resource files to disclosureSystem.mappings (re-register each call; DisclosureSystem.select() clears mappedPaths)
+        if cntlr.modelManager.disclosureSystem:
+            mappedPath = f"{os.sep}__xule_resources_dir__"
+            if (mappedPath, _xule_resources_dir) not in cntlr.modelManager.disclosureSystem.mappedPaths:
                 cntlr.modelManager.disclosureSystem.mappedPaths.append((mappedPath, _xule_resources_dir))
                 normalizedMappedPath = cntlr.webCache.normalizeUrl(mappedPath,None) # normalization occurs within ModelDocument.load()
                 if normalizedMappedPath != mappedPath: # python 3.13 on Windows also needs to map with drive letter added
@@ -104,6 +116,9 @@ def blockXuleValidateFinally(val):
             })
 
 def xuleValidate(val):
+    unitTestingLocation = "EDGAR/validate/XuleInterface.py#xuleValidate"
+    if unitTestingLocation in val.modelXbrl.arelleUnitTests:
+        raise pyNamedObject(val.modelXbrl.arelleUnitTests[unitTestingLocation], unitTestingLocation)
     usgYr = usgaapYear(val.modelXbrl)
     xuleParam = val.params.get("dqcRuleFilter","") # see description in __init__.py header, comes from params or config file
     runDqcrtOnly = True # EDGAR  default is to run DQCRT subset of rules only
@@ -134,9 +149,9 @@ def xuleValidate(val):
             }
             # get xule options
             xuleOptions = getattr(val.modelXbrl.modelManager.cntlr, "xule_vars", {}).get("options")
-            if not getattr(xuleOptions, "xule_rule_set", None):
+            if not user_defined_xule_rule_set:
                 extraOptions["xule_rule_set"] = f"{os.sep}__xule_resources_dir__{os.sep}dqcrt-us-{usgYr}-ruleset.zip"
-            if not getattr(xuleOptions, "xule_args_file", None):
+            if not user_defined_xule_args_file:
                 extraOptions["xule_args_file"] = f"{os.sep}__xule_resources_dir__{os.sep}dqcrt-us-{usgYr}-constants.json"
             if runDqcrtOnly and not (getattr(xuleOptions, "xule_run_only", None) or getattr(xuleOptions, "xule_run_only_pattern", None)):
                 extraOptions["xule_run_only_pattern"] = DQCRT_RUN_ONLY_PATTERN
@@ -146,7 +161,17 @@ def xuleValidate(val):
                 extraOptions["xule_trace"] = True # causes trace of each rule as it runs
             if "XULE_debug" in xuleParam and not getattr(xuleOptions, "xule_rule_set", None):
                 extraOptions["xule_debug"] = True # causes debug of each rule as it runs
-            xuleValidateFinally(val, extra_options=extraOptions)
+            try:
+                xuleValidateFinally(val, extra_options=extraOptions)
+            except:
+                val.modelXbrl.warning(f"xule.ValidationIncomplete",
+                                _("Validation was unable to complete XULE rules due to an internal error.  This is not considered an error in the filing."),
+                                modelObject=val.modelXbrl)
+                val.modelXbrl.debug(
+                    "xule:ValidationException",
+                    _("An unexpected exception occurred in XULE\n%(traceback)s"),
+                    traceback=traceback.format_exception(*sys.exc_info())
+                )
             val.modelXbrl.modelManager.validateDisclosureSystem = validateDisclosureSystem
             return True
         else:
@@ -281,35 +306,30 @@ def cntrlrCmdLineUtilityRun(cntlr, options, **kwargs):
 
     # Register the xule validator
     registerMethod = getXuleMethod(cntlr, 'Xule.RegisterValidator')
-    registerMethod(_short_name, _rule_set_map_name)
+    if registerMethod is not None:
+        registerMethod(_short_name, _rule_set_map_name)
 
 def getXulePlugin(cntlr):
     """Find the Xule plugin
 
     This will locate the Xule plugin module.
     """
-    global _xule_plugin_info, _incompatible_plugin
-    if _xule_plugin_info is None:
-        for plugin_name, plugin_info in PluginManager.modulePluginInfos.items():
+    global _xule_plugin_info, _incompatible_plugin, xulePluginDoesNotExist
+    if _xule_plugin_info is None and not xulePluginDoesNotExist:
+        for plugin_info in PluginManager.modulePluginInfos.values():
             moduleUrl = plugin_info.get('moduleURL')
-            if moduleUrl == 'xule':
+            if moduleUrl.endswith('xule'):
                 _xule_plugin_info = plugin_info
             elif DQC_plugin_url_pattern.match(moduleUrl):
                 _incompatible_plugin = moduleUrl
                 cntlr.addToLog(_("EDGAR is not compatible with the DQC.py plugin, please remove the DQC.py plugin.  The EDGAR plugin directly manages running of to run DQC rules."),
                                messageCode="arelle.incompatibleRulePlugin")
-        if _xule_plugin_info is None:
-            # attempt to find xule plugi
-            for path, childDirs, files in os.walk(_plugin_dir):
-                if path.endswith(os.sep + "xule") and childDirs in ([], ["__pycache__"]) and "__init__.py" in files:
-                    _xule_plugin_info = PluginManager.moduleModuleInfo(moduleURL=path)
-                    PluginManager.loadModule(_xule_plugin_info)
-                    PluginManager.pluginConfigChanged = False # don't save this change
-                    _xule_plugin_info = PluginManager.modulePluginInfos[_xule_plugin_info["name"]]
-                    break
-    if _xule_plugin_info is None:
+
+    if _xule_plugin_info is None and not xulePluginDoesNotExist:
         cntlr.addToLog(_("Xule plugin is not loaded. Xule plugin is required to run DQC rules. This plugin should be automatically loaded."),
                        messageCode="arelle.xulePluginNotLoaded")
+        # we've determined the plugin is not available
+        xulePluginDoesNotExist = True
 
     return _xule_plugin_info
 
@@ -318,7 +338,10 @@ def getXuleMethod(cntlr, class_name):
 
     Get a method/function from the Xule plugin. This is how this validator calls functions in the Xule plugin.
     """
-    return getXulePlugin(cntlr).get(class_name)
+    xule_plugin = getXulePlugin(cntlr)
+    if xule_plugin is not None:
+        return xule_plugin.get(class_name)
+    return None
 
 def menuTools(cntlr, menu):
     """Add validator menu the Tools menu in the Arelle GUI
@@ -327,7 +350,8 @@ def menuTools(cntlr, menu):
     """
     menu_method = getXuleMethod(cntlr, 'Xule.AddMenuTools')
     version_method = getXuleMethod(cntlr, 'Xule.ValidatorVersion')
-    menu_method(cntlr, menu, _short_name, _version_prefix, __file__, _rule_set_map_name, _latest_map_name)
+    if menu_method is not None:
+        menu_method(cntlr, menu, _short_name, _version_prefix, __file__, _rule_set_map_name, _latest_map_name)
 
 def validateMenuTools(cntlr, validateMenu, *args, **kwargs):
     """Add validator checkbutton to the Arelle Validate menu (under Tools).
@@ -344,8 +368,9 @@ def validateMenuTools(cntlr, validateMenu, *args, **kwargs):
     '''
     # Register the xule validator
     registerMethod = getXuleMethod(cntlr, 'Xule.RegisterValidator')
-    registerMethod(_short_name, _rule_set_map_name)
-    cntlr.config['xule_activated'] = False # block xule initialization from Tools menu path
+    if registerMethod is not None:
+        registerMethod(_short_name, _rule_set_map_name)
+        cntlr.config['xule_activated'] = False # block xule initialization from Tools menu path
 
 ''' original plugininfo from DQC.py
     incorporated as validate/EFM/__init__.py

@@ -26,7 +26,7 @@ class PresentationGroupNode(object):
         self.typedValue = typedValue
 
     def __str__(self):
-        if self.TypedValue is not none:
+        if self.TypedValue is not None:
             return "[typedValue: {} with {!s} children]".format(self.typedValue, self.arelleRelationship.preferredLabel, len(self.childrenList))
         return "[{} {} with {!s} children]".format(self.arelleConcept.qname, self.arelleRelationship.preferredLabel, len(self.childrenList))
 
@@ -110,7 +110,6 @@ class PresentationGroup(object):
                             for rel in reversed(localRelationshipSet)
                             if rel.toModelObject is not None),
                         linkrole=self.cube.linkroleUri)
-                raise Utils.RenderingException("xbrl.5.2.4.2", "Presentation group {} contains a directed cycle".format(self.cube.shortName))
             localRelationshipSet.append(relationship)
 
             try:

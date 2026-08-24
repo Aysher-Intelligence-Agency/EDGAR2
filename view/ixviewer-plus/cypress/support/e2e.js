@@ -32,11 +32,11 @@ Cypress.on('uncaught:exception', (err, runnable) => {
     return false
 })
 
-Cypress.Commands.add('loadByAccessionNum', (accessionNum) => {
+Cypress.Commands.add('loadByAccessionNum', (accessionNum, urlParam = '') => {
     // This function invokes the 'getByAccessionNum' function over in filingsFunnel.js
     // Did it this way so we can keep this function usable by standalone scripts outside Cypress
     let filingObj = getByAccessionNum(accessionNum)
-    if (filingObj) cy.loadFiling(filingObj);
+    if (filingObj) cy.loadFiling(filingObj, urlParam);
 })
 
 Cypress.Commands.add('loadWithHash', (accessionNum, hash) => {
@@ -54,17 +54,66 @@ Cypress.Commands.add('loadByIndex', (index) => {
     else { console.error(`no filing matching accession number ${accessionNum}`) }
 })
 
-Cypress.Commands.add('loadFiling', (filing) => {
+Cypress.Commands.add('loadFiling', (filing, urlParam = '') => {
     // It may be helpful to use this instead of cy.visit when iterating over a collection of filing objects 
     // ... as we can then leverage filing specific timeouts.
-    return cy.visit(filing.docPath, { timeout : Number(filing.timeout) }).then(browser => {
+    return cy.visit(filing.docPath + urlParam, { timeout : Number(filing.timeout) }).then(browser => {
         // Standard mode of waiting until the filing has completely loaded
-        cy.get(selectors.factCountClock, { timeout: Number(filing.timeout) || 12000 }).should('not.exist');
+        //cy.get(selectors.factCountClock, { timeout: Number(filing.timeout) || 12000 }).should('not.exist');
+        cy.get('div[id="loading-animation"]', { timeout: Number(filing.timeout) || 12000 }).should('not.be.visible');
+        cy.get(selectors.factCountClock).should('not.exist');
     })
 })
 
+Cypress.Commands.add('visibleOnScreen', (element) => {
+    /*
+    The regular 'Should Be Visible' check only checks if the element is not invisible or hidden.
+    It DOES NOT check if the element is actually visible on the screen.
+    This command should check to ensure that a given element is both visible, and also located inside the viewport
+    */
+    cy.get(element).should('be.visible').then( ($el) => {
+        const height = Cypress.$( cy.state("window") ).height();
+        const elemRect = $el[0].getBoundingClientRect();
+        expect( elemRect.top ).to.be.within(0, height );
+        expect( elemRect.bottom ).to.be.within(0, height );
+    })
+})
+
+Cypress.Commands.add('notVisibleOnScreen', (element) => {
+    /*
+    The sibling command to visibleOnScreen
+    This will check if an element is visible, but is NOT located inside the viewport
+    */
+    cy.get(element).should('be.visible').then( $el => {
+        const height = Cypress.$( cy.state("window") ).height();
+        const elemRect = $el[0].getBoundingClientRect();
+        expect( elemRect.top ).to.not.be.within(0, height );
+        expect( elemRect.bottom ).to.not.be.within(0,  height );
+    })
+})
+
+Cypress.Commands.add('findMaxHeight', (page) => {
+    /*
+    This command is used to find what the maximum height of the current page is
+    Useful for tests involving scrolling (Which are just tricky in general)
+
+    cy.get(selectors.xbrlForm).then((xbrl) => {
+    maxHeight = findMaxHeight(xbrl)
+
+    */
+
+    const body = document.body
+    const html = document.documentElement;
+    console.log("bodyScroll "+body.scrollHeight+"\nbodyOffset: "+body.offsetHeight+"\nclientHeight: "+html.clientHeight+"\nhtmlScroll: "+html.scrollHeight+"\nhtmlOffset: "+html.offsetHeight)
+    const maxHeight = Math.max( body.scrollHeight, body.offsetHeight,
+                       html.clientHeight, html.scrollHeight, html.offsetHeight );
+    console.log(maxHeight)
+
+
+})
+
 Cypress.Commands.add('openSettings', () => {
-    cy.get(selectors.menu).click({ force: true })
+    cy.get(selectors.menuButton).click({ force: true })
     cy.get(selectors.settings).click({ force: true })
 })
 

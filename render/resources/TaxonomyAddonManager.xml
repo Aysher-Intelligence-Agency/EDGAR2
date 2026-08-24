@@ -36,6 +36,12 @@
         <string>cef-2025_ref.xsd</string>
       </ReferenceFiles>
     </TaxonomyAddon>
+       <TaxonomyAddon>
+      <Taxonomy>cef-2026.xsd</Taxonomy>
+      <ReferenceFiles>
+        <string>cef-2026_ref.xsd</string>
+      </ReferenceFiles>
+    </TaxonomyAddon>
     <TaxonomyAddon>
       <Taxonomy>country-2009-01-31.xsd</Taxonomy>
       <DefinitionFiles>
@@ -120,6 +126,13 @@
       </DefinitionFiles>
       <ReferenceFiles/>
     </TaxonomyAddon>
+        <TaxonomyAddon>
+      <Taxonomy>country-2026.xsd</Taxonomy>
+      <DefinitionFiles>
+        <string>country-2026_doc.xsd</string>
+      </DefinitionFiles>
+      <ReferenceFiles/>
+    </TaxonomyAddon>
     <TaxonomyAddon>
       <Taxonomy>currency-2012-01-31.xsd</Taxonomy>
       <DefinitionFiles>
@@ -149,7 +162,7 @@
       <ReferenceFiles/>
     </TaxonomyAddon>
     <TaxonomyAddon>
-      <Taxonomy>currency-2019-01-31.xsd</Taxonomy>
+    <Taxonomy>currency-2019-01-31.xsd</Taxonomy>
       <DefinitionFiles>
         <string>currency-doc-2019-01-31.xml</string>
       </DefinitionFiles>
@@ -298,6 +311,15 @@
       </ReferenceFiles>
     </TaxonomyAddon>
     <TaxonomyAddon>
+      <Taxonomy>dei-2026.xsd</Taxonomy>
+      <DefinitionFiles>
+        <string>dei-2026_doc.xsd</string>
+      </DefinitionFiles>
+      <ReferenceFiles>
+        <string>dei-2026_ref.xsd</string>
+      </ReferenceFiles>
+    </TaxonomyAddon>
+    <TaxonomyAddon>
       <Taxonomy>exch-2011-01-31.xsd</Taxonomy>
       <DefinitionFiles>
         <string>exch-doc-2011-01-31.xml</string>
@@ -427,6 +449,12 @@
       </DefinitionFiles>
     </TaxonomyAddon>
     <TaxonomyAddon>
+    <Taxonomy>exch-2026.xsd</Taxonomy>
+      <DefinitionFiles>
+        <string>exch-2026_doc.xsd</string>
+      </DefinitionFiles>
+    </TaxonomyAddon>
+    <TaxonomyAddon>
       <Taxonomy>ffd-2023.xsd</Taxonomy>
       <DefinitionFiles>
         <string>ffd-2023_doc.xsd</string>
@@ -460,6 +488,15 @@
       </DefinitionFiles>
       <ReferenceFiles>
         <string>ffd-2025_ref.xsd</string>
+      </ReferenceFiles>
+    </TaxonomyAddon>
+    <TaxonomyAddon>
+      <Taxonomy>ffd-2026.xsd</Taxonomy>
+      <DefinitionFiles>
+        <string>ffd-2026_doc.xsd</string>
+      </DefinitionFiles>
+      <ReferenceFiles>
+        <string>ffd-2026_ref.xsd</string>
       </ReferenceFiles>
     </TaxonomyAddon>
     <TaxonomyAddon>
@@ -546,6 +583,13 @@
       <ReferenceFiles/>
     </TaxonomyAddon>
     <TaxonomyAddon>
+      <Taxonomy>naics-2026.xsd</Taxonomy>
+      <DefinitionFiles>
+        <string>naics-2026_doc.xsd</string>
+      </DefinitionFiles>
+      <ReferenceFiles/>
+    </TaxonomyAddon>
+    <TaxonomyAddon>
       <Taxonomy>oef-2023.xsd</Taxonomy>
       <DefinitionFiles/>
       <ReferenceFiles/>
@@ -623,6 +667,12 @@
       </ReferenceFiles>
     </TaxonomyAddon>
     <TaxonomyAddon>
+      <Taxonomy>rxp-2026.xsd</Taxonomy>
+      <ReferenceFiles>
+        <string>rxp-2026_ref.xsd</string>
+      </ReferenceFiles>
+    </TaxonomyAddon>
+    <TaxonomyAddon>
       <Taxonomy>sic-2009-01-31.xsd</Taxonomy>
       <DefinitionFiles>
         <string>sic-doc-2009-01-31.xml</string>
@@ -675,6 +725,13 @@
       <ReferenceFiles/>
     </TaxonomyAddon>
     <TaxonomyAddon>
+    <Taxonomy>sic-2026.xsd</Taxonomy>
+      <DefinitionFiles>
+        <string>sic-2026_doc.xsd</string>
+      </DefinitionFiles>
+      <ReferenceFiles/>
+    </TaxonomyAddon>
+    <TaxonomyAddon>
       <Taxonomy>snj-2023.xsd</Taxonomy>
       <DefinitionFiles>
         <string>snj-2023_doc.xsd</string>
@@ -690,6 +747,12 @@
       <Taxonomy>snj-2025.xsd</Taxonomy>
       <DefinitionFiles>
         <string>snj-2025_doc.xsd</string>
+      </DefinitionFiles>
+    </TaxonomyAddon>
+    <TaxonomyAddon>
+      <Taxonomy>snj-2026.xsd</Taxonomy>
+      <DefinitionFiles>
+        <string>snj-2026_doc.xsd</string>
       </DefinitionFiles>
     </TaxonomyAddon>
     <TaxonomyAddon>
@@ -883,6 +946,15 @@
       </ReferenceFiles>
     </TaxonomyAddon>
     <TaxonomyAddon>
+    <Taxonomy>us-gaap-2026.xsd</Taxonomy>
+      <DefinitionFiles>
+        <string>us-gaap-doc-2026.xml</string>
+      </DefinitionFiles>
+      <ReferenceFiles>
+        <string>us-gaap-ref-2026.xml</string>
+      </ReferenceFiles>
+    </TaxonomyAddon>
+    <TaxonomyAddon>
       <Taxonomy>srt-2021-01-31.xsd</Taxonomy>
       <DefinitionFiles>
         <string>srt-doc-2021-01-31.xml</string>
@@ -927,6 +999,15 @@
         <string>srt-ref-2025.xml</string>
       </ReferenceFiles>
     </TaxonomyAddon>
+     <TaxonomyAddon>
+      <Taxonomy>srt-2026.xsd</Taxonomy>
+      <DefinitionFiles>
+        <string>srt-doc-2026.xml</string>
+      </DefinitionFiles>
+      <ReferenceFiles>
+        <string>srt-ref-2026.xml</string>
+      </ReferenceFiles>
+    </TaxonomyAddon>
     <TaxonomyAddon>
       <Taxonomy>us-gaap-ebp-2024.xsd</Taxonomy>
       <DefinitionFiles>
@@ -943,6 +1024,15 @@
       </DefinitionFiles>
       <ReferenceFiles>
         <string>us-gaap-ebp-ref-2025.xml</string>
+      </ReferenceFiles>
+    </TaxonomyAddon>
+     <TaxonomyAddon>
+      <Taxonomy>us-gaap-ebp-2026.xsd</Taxonomy>
+      <DefinitionFiles>
+        <string>us-gaap-ebp-doc-2026.xml</string>
+      </DefinitionFiles>
+      <ReferenceFiles>
+        <string>us-gaap-ebp-ref-2026.xml</string>
       </ReferenceFiles>
     </TaxonomyAddon>
     <!-- IASB -->

@@ -508,7 +508,7 @@ class Report(object):
                         exampleFact = fact
                     if symbol is None:
                         symbol = Utils.getSymbolStr(fact) or unitID
-                    if fact.decimals.casefold() == 'inf' or maxSoFar > -3:
+                    if fact.decimals.casefold() == 'inf' or maxSoFar > -3 or not Utils.is_number(fact.decimals):
                         maxSoFar = 0
                         break  # to be scaled, every fact must have a decimals value of -3 or less.  inf inhibits scaling.
                     else:
@@ -1136,6 +1136,7 @@ class Report(object):
         elif self.filing.fileNameBase is not None:
             self.controller.writeFile(os.path.join(self.filing.fileNameBase, baseName), htmlText)
             self.controller.renderedFiles.add(baseName)
+            self.filing.report.renderedFiles.append(baseName)
         if self.filing.altTransform is not None and cell_count <= 50000:
             # secondary output for workstation
             baseName = baseNameBeforeExtension + '.htm' + (self.filing.altSuffix or '')
@@ -1144,6 +1145,7 @@ class Report(object):
             htmlText = treeToString(result, method='html', with_tail=False, pretty_print=True, encoding='us-ascii')
             self.controller.writeFile(os.path.join(self.filing.altFolder, baseName), htmlText)
             self.controller.renderedFiles.add(baseName)
+            self.filing.report.renderedFiles.append(baseName)
         self.controller.logDebug("R{} htm XSLT {:.3f} secs.".format(self.cube.fileNumber, time.time() - _startedAt))
 
     def generateBarChart(self):
